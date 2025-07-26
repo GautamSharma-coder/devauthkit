@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DevAuthKit Demo</title>
+  <style>
+    #message {
+      margin-top: 1rem;
+      font-weight: bold;
+    }
+    .loading {
+      color: gray;
+    }
+    .error {
+      color: red;
+    }
+    .success {
+      color: green;
+    }
+  </style>
+</head>
+<body>
+  <h2>DevAuthKit - OTP Login</h2>
+
+  <form id="otp-form">
+    <label>Email:</label>
+    <input type="email" id="email" required />
+    <button type="submit">Send OTP</button>
+  </form>
+
+  <div id="otp-section" style="display: none; margin-top: 1rem;">
+    <label>Enter OTP:</label>
+    <input type="text" id="otp" />
+    <button id="verify-btn">Verify</button>
+  </div>
+
+  <p id="message"></p>
+
+  <script>
+    const form = document.getElementById("otp-form");
+    const message = document.getElementById("message");
+    const otpSection = document.getElementById("otp-section");
+    const verifyBtn = document.getElementById("verify-btn");
+
+    function showMessage(text, type = "") {
+      message.textContent = text;
+      message.className = type;
+    }
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("email").value.trim();
+      if (!email) return showMessage("Please enter an email.", "error");
+
+      showMessage("Sending OTP...", "loading");
+
+      try {
+        const res = await fetch("http://localhost:3000/auth/request-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          showMessage(data.message, "success");
+          otpSection.style.display = "block";
+        } else {
+          showMessage(data.error || "Failed to send OTP.", "error");
+        }
+      } catch (err) {
+        showMessage("Network error. Please try again.", "error");
+      }
+    };
+
+    verifyBtn.onclick = async () => {
+      const email = document.getElementById("email").value.trim();
+      const otp = document.getElementById("otp").value.trim();
+      if (!otp) return showMessage("Please enter the OTP.", "error");
+
+      showMessage("Verifying OTP...", "loading");
+
+      try {
+        const res = await fetch("http://localhost:3000/auth/verify-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, otp }),
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          showMessage(data.message, "success");
+
+          const profileRes = await fetch("http://localhost:3000/profile");
+          const profile = await profileRes.json();
+          if (profileRes.ok) {
+            showMessage(`✅ ${profile.message}`, "success");
+          }
+        } else {
+          showMessage(data.error || "Verification failed.", "error");
+        }
+      } catch (err) {
+        showMessage("Network error during verification.", "error");
+      }
+    };
+  </script>
+</body>
+</html>

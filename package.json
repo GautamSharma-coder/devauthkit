@@ -1,0 +1,20 @@
+{
+  "name": "devauthkit",
+  "version": "1.0.0",
+  "description": "A plug-and-play authentication service for developers",
+  "main": "server/server.js", 
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "keywords": ["auth", "authentication", "express", "jwt", "session", "email"],
+  "author": "Gautam Sharma",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "express-session": "^1.18.1",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^7.0.3"
+  }
+}
