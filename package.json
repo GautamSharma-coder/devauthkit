@@ -1,11 +1,13 @@
 {
   "name": "devauthkit",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A plug-and-play authentication service for developers",
   "main": "server/server.js", 
   "scripts": {
-    "start": "node server/server.js"
-  },
+  "start": "node example.js",
+  "dev": "nodemon example.js",
+  "test": "echo \"No test setup yet\" && exit 0"
+},
   "keywords": ["auth", "authentication", "express", "jwt", "session", "email"],
   "author": "Gautam Sharma",
   "license": "MIT",
