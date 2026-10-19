@@ -28,14 +28,40 @@ module.exports = function requireAuth(req, res, next) {
     }
   }
 
-  // 2. Check Express session
+  // 2. Check Cookie for devauth_token
+  const cookieName = config.get("cookieName") || "devauth_token";
+  let cookieToken = null;
+  if (req.cookies && req.cookies[cookieName]) {
+    cookieToken = req.cookies[cookieName];
+  } else if (req.headers && req.headers.cookie) {
+    const match = req.headers.cookie.match(new RegExp(`(?:^|;\\s*)${cookieName}=([^;]*)`));
+    if (match) {
+      cookieToken = decodeURIComponent(match[1]);
+    }
+  }
+
+  if (cookieToken) {
+    try {
+      const decoded = jwt.verify(cookieToken, config.get("jwtSecret"));
+      req.user = decoded;
+      return next();
+    } catch (err) {
+      // Token expired or invalid
+      return res.status(401).json({ 
+        error: "Unauthorized: Invalid or expired cookie token",
+        details: err.message
+      });
+    }
+  }
+
+  // 3. Check Express session
   if (req.session && req.session.user) {
     req.user = req.session.user;
     return next();
   }
 
-  // 3. Fallback: No authentication provided
+  // 4. Fallback: No authentication provided
   return res.status(401).json({ 
-    error: "Unauthorized: No valid session or token provided" 
+    error: "Unauthorized: No valid session, token, or auth cookie provided" 
   });
 };

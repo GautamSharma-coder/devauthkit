@@ -1,19 +1,37 @@
 # DevAuthKit 🔐
 
 [![npm version](https://img.shields.io/npm/v/devauthkit.svg)](https://www.npmjs.com/package/devauthkit)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![CI](https://github.com/GautamSharma-coder/devauthkit/actions/workflows/ci.yml/badge.svg)](https://github.com/GautamSharma-coder/devauthkit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**DevAuthKit** is a fullstack plug-and-play authentication toolkit for Express.js with a companion lightweight Client SDK. Designed for developers who want to integrate secure passwordless email OTP authentication, JWT Bearer tokens, and session handling into their apps in minutes—with zero boilerplate.
+**DevAuthKit** is a lightweight, zero-config self-hosted authentication toolkit for Node.js & Express with a universal companion Client SDK. Built for developers who want plug-and-play passwordless email OTP authentication, JWT Bearer tokens, and secure `httpOnly` sessions without paying exorbitant SaaS pricing (Clerk/Auth0) or wrestling with complex configuration (NextAuth/Passport).
+
+---
+
+### ⚡ Why DevAuthKit? (Comparison)
+
+| Feature | **DevAuthKit** | Clerk / Auth0 | NextAuth / Auth.js | Passport.js |
+| :--- | :---: | :---: | :---: | :---: |
+| **Pricing** | **100% Free / Self-Hosted** | $$$ / MAU Tier Limits | Free | Free |
+| **Setup Time** | **< 3 minutes** | 5 minutes | 30+ minutes | 2+ hours |
+| **TypeScript Support** | ✅ **Native (`.d.ts`)** | ✅ | Complex Typings | ⚠️ `@types/passport` |
+| **Passwordless Email OTP** | ✅ **Built-in** | ✅ | Manual Config | ❌ Manual |
+| **Zero-Setup Dev Mode** | ✅ **Console OTPs** | ❌ Requires Cloud Account | ❌ | ❌ |
+| **Email Providers** | **Resend + SMTP + Custom** | Vendor Cloud | Nodemailer / Custom | Manual |
+| **Dual/Triple Strategy** | **Bearer + httpOnly Cookie + Session** | Proprietary SDK | Session / JWT | Strategy plugins |
+| **Database Lock-in** | ❌ **None (Zero Lock-in)** | Yes (Proprietary Cloud) | Adapters required | Manual DB glue |
 
 ---
 
 ## ✨ Features
 
 - 🔑 **Passwordless Email OTP**: Secure 6-digit codes generated with Node's native `crypto.randomInt`.
-- 🛡️ **Dual-Strategy Auth**: Supports both **JWT Bearer Tokens** (`Authorization: Bearer <token>`) and **Session Cookies** (`express-session`).
+- 📘 **100% TypeScript Native**: Full type definitions included (`index.d.ts` & `client/index.d.ts`) with zero external `@types` installs required.
+- 🛡️ **Triple-Strategy Auth**: Supports **JWT Bearer Tokens**, secure **`httpOnly` Cookies**, and **Session Cookies** in a single `requireAuth` middleware.
+- ⚡ **Zero-Setup Dev Mode**: Test locally with zero configuration. If email credentials are not configured, OTPs are cleanly printed to your terminal.
+- 📬 **Modern Email Support**: First-class support for **[Resend](https://resend.com)** (`RESEND_API_KEY`) and standard SMTP (Nodemailer, Gmail, SendGrid).
 - 📦 **Built-in Client SDK**: Import `DevAuthClient` from `devauthkit/client` for 3-line frontend auth in React, Vue, Next.js, or Vanilla JS.
-- ⚡ **Zero-Setup Dev Mode**: Test locally out of the box! If email credentials are not configured, OTPs are cleanly printed to your terminal.
 - 🚫 **Brute-Force & Replay Shield**: Automatic lockout after 5 failed attempts, OTP invalidation on verification, and cooldown throttling.
 - 🕒 **In-Memory TTL Store**: Auto-pruning memory store to prevent leaks without requiring a database for rapid prototypes.
 - 🚪 **Complete Auth Lifecycle**: Built-in `/auth/me` profile inspection and `/auth/logout` session destruction.
@@ -148,12 +166,17 @@ Pass configuration options to `devAuthKit(app, options)`:
 | `maxAttempts` | `number` | `5` | Maximum failed verification attempts before invalidating OTP. |
 | `devMode` | `boolean` | `true` in non-prod | When enabled, logs OTPs to terminal console for zero-config testing. |
 | `apiPrefix` | `string` | `"/auth"` | Route mount prefix. |
+| `setHttpOnlyCookie` | `boolean` | `true` | Automatically set secure `httpOnly` cookie with JWT on verification. |
+| `cookieName` | `string` | `"devauth_token"` | Name of the authentication cookie. |
+| `emailProvider` | `string` | `"smtp"` or `"resend"` | Email delivery service. Defaults to `"resend"` if `RESEND_API_KEY` is present. |
+| `resendApiKey` | `string` | `process.env.RESEND_API_KEY` | API Key for transactional delivery via Resend. |
+| `fromEmail` | `string` | `process.env.FROM_EMAIL` | Sender address (e.g. `"auth@myapp.com"`). |
 | `mailer` | `function` | `undefined` | Custom async mailer function `async ({ email, otp }) => {}`. |
 | `debug` | `boolean` | `false` | Enable verbose internal logging. |
 
 ---
 
-## 📁 .env Configuration (Optional for Production SMTP)
+## 📁 .env Configuration (Production Ready)
 
 Create a `.env` file in your root project:
 
@@ -161,17 +184,26 @@ Create a `.env` file in your root project:
 SESSION_SECRET=super_secret_session_key_12345
 JWT_SECRET=super_secret_jwt_key_12345
 
-# SMTP credentials (e.g. Gmail App Password, Resend, or SendGrid)
+# Option A: Modern Delivery via Resend (Recommended)
+RESEND_API_KEY=re_123456789
+FROM_EMAIL=auth@yourdomain.com
+
+# Option B: Standard SMTP (e.g. Gmail App Password, SendGrid, Postmark)
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASS=your-16-character-app-password
 ```
 
-> **Note:** If `EMAIL_USER` is omitted, DevAuthKit automatically activates **Dev Mode** and prints OTPs directly to your console!
+> **Note:** If both `RESEND_API_KEY` and `EMAIL_USER` are omitted, DevAuthKit automatically activates **Zero-Setup Dev Mode** and prints OTPs directly to your console!
 
 ---
 
 ## 🔖 Version Changelog
 
+- **v1.2.0**:
+  - **100% Native TypeScript Support**: Added first-class `.d.ts` declaration files for both backend and client SDK.
+  - **Triple-Strategy Auth**: Added secure `httpOnly` cookie issuance and verification in `requireAuth` middleware.
+  - **Resend Email Integration**: Direct zero-dependency integration with Resend API via `RESEND_API_KEY`.
+  - Upgraded test suite with automated cookie verification tests (19/19 passing).
 - **v1.1.1**:
   - Added universal companion **Client SDK** (`devauthkit/client`).
   - Added `DevAuthClient` with `sendOTP()`, `verifyOTP()`, `fetch()`, `getProfile()`, `onAuthStateChanged()`, and `logout()`.

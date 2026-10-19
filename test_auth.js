@@ -74,6 +74,8 @@ async function runTests() {
     assert(goodVerifyData.user?.email === testEmail, "JWT user email matches requested email");
 
     const token = goodVerifyData.token;
+    const setCookieHeader = goodVerifyRes.headers.get("set-cookie") || "";
+    assert(setCookieHeader.includes("devauth_token="), "verifyOTP automatically sets httpOnly auth cookie");
 
     // Test 4: Replay protection (OTP must be cleared after verification)
     const replayRes = await fetch(`${baseUrl}/auth/verify`, {
@@ -97,7 +99,16 @@ async function runTests() {
     const dashData = await dashRes.json();
     assert(dashRes.ok && dashData.success === true, "Custom route /api/dashboard accessible via requireAuth");
 
-    // Test 7: Unauthorized request without token
+    // Test 7: Protected route via httpOnly Cookie ONLY (no Authorization header)
+    const cookieTokenMatch = setCookieHeader.match(/devauth_token=([^;]+)/);
+    const cookieValue = cookieTokenMatch ? cookieTokenMatch[1] : "";
+    const cookieAuthRes = await fetch(`${baseUrl}/api/dashboard`, {
+      headers: { "Cookie": `devauth_token=${cookieValue}` }
+    });
+    const cookieAuthData = await cookieAuthRes.json();
+    assert(cookieAuthRes.ok && cookieAuthData.user?.email === testEmail, "requireAuth successfully authenticates via Cookie header only");
+
+    // Test 8: Unauthorized request without token
     const unauthRes = await fetch(`${baseUrl}/api/dashboard`);
     assert(unauthRes.status === 401, "Protected route denies request without authentication (401)");
 

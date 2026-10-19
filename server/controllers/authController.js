@@ -124,6 +124,18 @@ exports.verifyOTP = (req, res) => {
       req.session.user = userPayload;
     }
 
+    // 3. Set secure httpOnly cookie (if res.cookie is available and setHttpOnlyCookie is enabled)
+    if (config.get("setHttpOnlyCookie") && typeof res.cookie === "function") {
+      const isProduction = process.env.NODE_ENV === "production";
+      const cookieName = config.get("cookieName") || "devauth_token";
+      res.cookie(cookieName, token, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "strict" : "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+    }
+
     return res.json({
       message: "Logged in successfully",
       token,
@@ -148,15 +160,20 @@ exports.getMe = (req, res) => {
 };
 
 /**
- * Logout user - destroy session and clear session cookies
+ * Logout user - destroy session and clear session & auth cookies
  */
 exports.logout = (req, res) => {
+  const cookieName = config.get("cookieName") || "devauth_token";
+  if (typeof res.clearCookie === "function") {
+    res.clearCookie(cookieName);
+    res.clearCookie("connect.sid");
+  }
+
   if (req.session) {
     req.session.destroy((err) => {
       if (err) {
         return res.status(500).json({ error: "Failed to log out" });
       }
-      res.clearCookie("connect.sid");
       return res.json({ message: "Logged out successfully" });
     });
   } else {
