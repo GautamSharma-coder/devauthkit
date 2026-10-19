@@ -1,33 +1,165 @@
 // server/controllers/authController.js
-const transporter = require("../utils/mailer");
+const jwt = require("jsonwebtoken");
+const { sendOTP } = require("../utils/mailer");
 const generateOTP = require("../utils/generateOTP");
 const sessionStore = require("../sessionStore");
+const config = require("../config");
 
+// Simple email regex for basic validation
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Request an OTP for email login/verification
+ */
 exports.requestOTP = async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: "Email required" });
+  try {
+    const { email } = req.body;
 
-  const otp = generateOTP();
-  sessionStore[email] = { otp, verified: false, createdAt: Date.now() };
+    if (!email || !EMAIL_REGEX.test(email.trim())) {
+      return res.status(400).json({ error: "A valid email address is required" });
+    }
 
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: "Your DevAuthKit OTP",
-    text: `Your OTP is ${otp}`,
-  });
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = sessionStore.get ? sessionStore.get(normalizedEmail) : sessionStore[normalizedEmail];
 
-  res.json({ message: "OTP sent" });
+    // Throttle: enforce minimum 30 seconds between OTP requests per email
+    if (existing && Date.now() - existing.createdAt < 30 * 1000) {
+      const waitSeconds = Math.ceil((30 * 1000 - (Date.now() - existing.createdAt)) / 1000);
+      return res.status(429).json({ 
+        error: `Please wait ${waitSeconds}s before requesting a new code` 
+      });
+    }
+
+    const otp = generateOTP();
+    const otpData = { otp, attempts: 0, createdAt: Date.now() };
+
+    if (sessionStore.set) {
+      sessionStore.set(normalizedEmail, otpData);
+    } else {
+      sessionStore[normalizedEmail] = otpData;
+    }
+
+    const result = await sendOTP({ email: normalizedEmail, otp });
+
+    return res.json({
+      message: "OTP sent successfully",
+      expiresInMinutes: config.get("otpExpiryMinutes"),
+      devMode: result.devMode || undefined
+    });
+  } catch (error) {
+    console.error("[DevAuthKit] Error requesting OTP:", error);
+    return res.status(500).json({ 
+      error: "Failed to send OTP",
+      details: config.get("debug") ? error.message : undefined
+    });
+  }
 };
 
+/**
+ * Verify OTP and authenticate user (generates JWT + creates session)
+ */
 exports.verifyOTP = (req, res) => {
-  const { email, otp } = req.body;
-  const user = sessionStore[email];
+  try {
+    const { email, otp } = req.body;
 
-  if (!user || user.otp !== otp) return res.status(401).json({ error: "Invalid OTP" });
-  if (Date.now() - user.createdAt > 5 * 60 * 1000) return res.status(401).json({ error: "OTP expired" });
+    if (!email || !otp) {
+      return res.status(400).json({ error: "Email and OTP are required" });
+    }
 
-  req.session.user = { email };
-  user.verified = true;
-  res.json({ message: "Logged in" });
+    const normalizedEmail = email.trim().toLowerCase();
+    const entry = sessionStore.get ? sessionStore.get(normalizedEmail) : sessionStore[normalizedEmail];
+
+    if (!entry) {
+      return res.status(401).json({ 
+        error: "No pending OTP found for this email. Please request a new code." 
+      });
+    }
+
+    const maxAttempts = config.get("maxAttempts");
+    if (entry.attempts >= maxAttempts) {
+      if (sessionStore.delete) sessionStore.delete(normalizedEmail);
+      else delete sessionStore[normalizedEmail];
+      return res.status(429).json({ 
+        error: "Too many failed attempts. This OTP has been invalidated for security. Please request a new code." 
+      });
+    }
+
+    const expiryMs = config.get("otpExpiryMinutes") * 60 * 1000;
+    if (Date.now() - entry.createdAt > expiryMs) {
+      if (sessionStore.delete) sessionStore.delete(normalizedEmail);
+      else delete sessionStore[normalizedEmail];
+      return res.status(401).json({ error: "OTP has expired. Please request a new one." });
+    }
+
+    if (entry.otp !== otp.toString().trim()) {
+      let attempts = 0;
+      if (sessionStore.recordAttempt) {
+        attempts = sessionStore.recordAttempt(normalizedEmail);
+      } else {
+        entry.attempts = (entry.attempts || 0) + 1;
+        attempts = entry.attempts;
+      }
+      const attemptsRemaining = Math.max(0, maxAttempts - attempts);
+      return res.status(401).json({ 
+        error: "Invalid OTP",
+        attemptsRemaining
+      });
+    }
+
+    // OTP is valid - clear from store to prevent replay attacks
+    if (sessionStore.delete) sessionStore.delete(normalizedEmail);
+    else delete sessionStore[normalizedEmail];
+
+    const userPayload = { email: normalizedEmail };
+
+    // 1. Generate JWT Token
+    const token = jwt.sign(
+      userPayload,
+      config.get("jwtSecret"),
+      { expiresIn: config.get("jwtExpiresIn") }
+    );
+
+    // 2. Set Session (if session is available on req)
+    if (req.session) {
+      req.session.user = userPayload;
+    }
+
+    return res.json({
+      message: "Logged in successfully",
+      token,
+      user: userPayload
+    });
+  } catch (error) {
+    console.error("[DevAuthKit] Error verifying OTP:", error);
+    return res.status(500).json({ 
+      error: "Verification failed",
+      details: config.get("debug") ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Get current authenticated user profile
+ */
+exports.getMe = (req, res) => {
+  return res.json({
+    user: req.user
+  });
+};
+
+/**
+ * Logout user - destroy session and clear session cookies
+ */
+exports.logout = (req, res) => {
+  if (req.session) {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ error: "Failed to log out" });
+      }
+      res.clearCookie("connect.sid");
+      return res.json({ message: "Logged out successfully" });
+    });
+  } else {
+    return res.json({ message: "Logged out successfully" });
+  }
 };
