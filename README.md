@@ -1,9 +1,10 @@
 # DevAuthKit 🔐
 
 [![npm version](https://img.shields.io/npm/v/devauthkit.svg)](https://www.npmjs.com/package/devauthkit)
+[![CI](https://github.com/GautamSharma-coder/devauthkit/actions/workflows/ci.yml/badge.svg)](https://github.com/GautamSharma-coder/devauthkit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**DevAuthKit** is a plug-and-play authentication framework for Express.js. Designed for developers who want to integrate secure passwordless email OTP authentication, JWT Bearer tokens, and session handling into their apps in minutes—with zero boilerplate.
+**DevAuthKit** is a fullstack plug-and-play authentication toolkit for Express.js with a companion lightweight Client SDK. Designed for developers who want to integrate secure passwordless email OTP authentication, JWT Bearer tokens, and session handling into their apps in minutes—with zero boilerplate.
 
 ---
 
@@ -11,11 +12,12 @@
 
 - 🔑 **Passwordless Email OTP**: Secure 6-digit codes generated with Node's native `crypto.randomInt`.
 - 🛡️ **Dual-Strategy Auth**: Supports both **JWT Bearer Tokens** (`Authorization: Bearer <token>`) and **Session Cookies** (`express-session`).
+- 📦 **Built-in Client SDK**: Import `DevAuthClient` from `devauthkit/client` for 3-line frontend auth in React, Vue, Next.js, or Vanilla JS.
 - ⚡ **Zero-Setup Dev Mode**: Test locally out of the box! If email credentials are not configured, OTPs are cleanly printed to your terminal.
 - 🚫 **Brute-Force & Replay Shield**: Automatic lockout after 5 failed attempts, OTP invalidation on verification, and cooldown throttling.
 - 🕒 **In-Memory TTL Store**: Auto-pruning memory store to prevent leaks without requiring a database for rapid prototypes.
 - 🚪 **Complete Auth Lifecycle**: Built-in `/auth/me` profile inspection and `/auth/logout` session destruction.
-- 📦 **Pluggable & Customizable**: Configurable JWT secret, expiry, CORS origins, and custom mailers.
+- 🔄 **Reactive State Management**: `auth.onAuthStateChanged()` listener for instant frontend UI re-renders on login/logout.
 
 ---
 
@@ -27,9 +29,7 @@ npm install devauthkit
 
 ---
 
-## 🚀 Quick Start
-
-### 1. Integrate with your Express App
+## 🚀 Quick Start (Backend)
 
 ```javascript
 const express = require("express");
@@ -63,6 +63,63 @@ app.listen(3000, () => {
 
 ---
 
+## 💻 Client SDK (`devauthkit/client`)
+
+DevAuthKit includes a universal frontend client SDK that handles token storage, authentication state, and automatically injects Bearer tokens into your API requests.
+
+### Usage in React, Vue, Next.js, or Vite
+
+```javascript
+import { DevAuthClient } from "devauthkit/client";
+
+// Initialize client
+const auth = new DevAuthClient({
+  apiUrl: "http://localhost:3000" // or omit if running on the same domain
+});
+
+// 1. Request OTP Code
+await auth.sendOTP("user@example.com");
+
+// 2. Verify OTP & Automatically Store JWT Token
+await auth.verifyOTP("user@example.com", "123456");
+
+// 3. Make Authenticated API Calls (Bearer Token is attached automatically!)
+const res = await auth.fetch("/api/dashboard");
+const data = await res.json();
+
+// 4. Check Authentication State
+if (auth.isAuthenticated()) {
+  console.log("Current user:", auth.getUser());
+}
+
+// 5. Reactive State Listener (Great for React useEffect or Vue watchers)
+const unsubscribe = auth.onAuthStateChanged((user) => {
+  if (user) {
+    console.log("User logged in:", user.email);
+  } else {
+    console.log("User logged out");
+  }
+});
+
+// 6. Log Out
+await auth.logout();
+```
+
+### Usage in Plain HTML (Browser Script Tag)
+
+```html
+<script src="node_modules/devauthkit/client/index.js"></script>
+<!-- Or via CDN: https://unpkg.com/devauthkit/client/index.js -->
+
+<script>
+  const auth = new DevAuthClient({ apiUrl: "http://localhost:3000" });
+  
+  // Use auth.sendOTP(), auth.verifyOTP(), auth.fetch(), etc.
+</script>
+```
+
+---
+
 ## 🧪 Available Endpoints
 
 By default, routes are mounted under `/auth`:
@@ -74,47 +131,6 @@ By default, routes are mounted under `/auth`:
 | `GET` | `/auth/me` | Return authenticated user's info (requires Bearer token or session). |
 | `POST` | `/auth/logout` | Destroy session and clear session cookies. |
 | `GET` | `/profile` | Built-in test route verifying authentication status. |
-
----
-
-## 💻 Frontend Client Example
-
-### 1. Request OTP
-```javascript
-const res = await fetch("http://localhost:3000/auth/login", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ email: "user@example.com" })
-});
-const data = await res.json();
-```
-
-### 2. Verify OTP & Store JWT
-```javascript
-const res = await fetch("http://localhost:3000/auth/verify", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  credentials: "include", // For session cookies
-  body: JSON.stringify({ email: "user@example.com", otp: "123456" })
-});
-const { token, user } = await res.json();
-
-// Save token for API calls
-localStorage.setItem("auth_token", token);
-```
-
-### 3. Make Protected Requests
-```javascript
-const token = localStorage.getItem("auth_token");
-
-const res = await fetch("http://localhost:3000/api/dashboard", {
-  headers: {
-    "Authorization": `Bearer ${token}`
-  },
-  credentials: "include"
-});
-const data = await res.json();
-```
 
 ---
 
@@ -156,6 +172,11 @@ EMAIL_PASS=your-16-character-app-password
 
 ## 🔖 Version Changelog
 
+- **v1.1.1**:
+  - Added universal companion **Client SDK** (`devauthkit/client`).
+  - Added `DevAuthClient` with `sendOTP()`, `verifyOTP()`, `fetch()`, `getProfile()`, `onAuthStateChanged()`, and `logout()`.
+  - Configured package `"exports"` for clean import resolution (`import { DevAuthClient } from "devauthkit/client"`).
+  - Packaged client files into npm tarball.
 - **v1.1.0**:
   - Full JWT token support (sign, verify, refresh payloads).
   - Dual-strategy `requireAuth` middleware (Bearer header + session cookie).

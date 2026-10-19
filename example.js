@@ -15,7 +15,8 @@ devAuthKit(app, {
   debug: true
 });
 
-// Serve frontend demo directly on /demo for quick testing
+// Serve client SDK and frontend demo directly for quick testing
+app.use("/client", express.static(path.join(__dirname, "client")));
 app.use("/demo", express.static(path.join(__dirname, "client", "frontend")));
 
 // Example custom protected route using DevAuthKit's requireAuth middleware

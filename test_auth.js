@@ -2,9 +2,10 @@
 const express = require("express");
 const devAuthKit = require("./server/server.js");
 const sessionStore = require("./server/sessionStore.js");
+const { DevAuthClient } = require("./client/index.js");
 
 async function runTests() {
-  console.log("🧪 Starting DevAuthKit Phase 1 Automated Verification...\n");
+  console.log("🧪 Starting DevAuthKit Phase 1 & Client SDK Automated Verification...\n");
 
   const app = express();
   devAuthKit(app, {
@@ -104,6 +105,38 @@ async function runTests() {
     const logoutRes = await fetch(`${baseUrl}/auth/logout`, { method: "POST" });
     const logoutData = await logoutRes.json();
     assert(logoutRes.ok && logoutData.message.includes("Logged out"), "POST /auth/logout returns 200");
+
+    // ==========================================
+    // DevAuthClient SDK Verification
+    // ==========================================
+    console.log("\n📦 Testing DevAuthClient SDK...");
+
+    const client = new DevAuthClient({
+      apiUrl: baseUrl,
+      customFetch: fetch
+    });
+
+    const sdkEmail = "sdkuser@example.com";
+    const sdkReq = await client.sendOTP(sdkEmail);
+    assert(sdkReq.devMode === true, "Client SDK: client.sendOTP() works");
+
+    const sdkStored = sessionStore.get ? sessionStore.get(sdkEmail) : sessionStore[sdkEmail];
+    const sdkOtp = sdkStored?.otp;
+
+    const verifyResult = await client.verifyOTP(sdkEmail, sdkOtp);
+    assert(client.isAuthenticated() === true, "Client SDK: client.isAuthenticated() is true after verify");
+    assert(Boolean(client.getToken()), "Client SDK: client.getToken() returns JWT");
+    assert(client.getUser()?.email === sdkEmail, "Client SDK: client.getUser() matches signed-in user");
+
+    // SDK authenticated fetch
+    const sdkFetchRes = await client.fetch("/api/dashboard");
+    const sdkFetchData = await sdkFetchRes.json();
+    assert(sdkFetchRes.ok && sdkFetchData.user?.email === sdkEmail, "Client SDK: client.fetch() automatically attaches Bearer token");
+
+    // SDK logout
+    await client.logout();
+    assert(client.isAuthenticated() === false, "Client SDK: client.isAuthenticated() is false after logout");
+    assert(client.getToken() === null, "Client SDK: client.getToken() is null after logout");
 
     console.log(`\n🎉 Results: ${passed}/${total} tests passed!\n`);
   } catch (err) {
