@@ -192,6 +192,12 @@ EMAIL_PASS=your-16-character-app-password
 
 ---
 
+## 🙌 Contributing
+
+Contributions, feature requests, and bug reports are welcome! Please check out our [Contributing Guide](CONTRIBUTING.md) to learn how to set up the project locally and submit PRs.
+
+---
+
 ## 👨‍💻 Author
 
 **Gautam Sharma**  
@@ -202,3 +208,4 @@ GitHub: [@GautamSharma-coder](https://github.com/GautamSharma-coder)
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
