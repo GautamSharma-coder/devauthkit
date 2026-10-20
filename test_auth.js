@@ -242,6 +242,115 @@ async function runTests() {
     await redisOtpStore.delete("redis@example.com");
     assert(await redisOtpStore.get("redis@example.com") === null, "Redis OTP adapter deletes stored OTP values");
 
+    const rateLimitValues = new Map();
+    const redisRateLimitCalls = [];
+    const mockRateLimitRedis = {
+      async incr(key) {
+        const count = (rateLimitValues.get(key)?.count || 0) + 1;
+        rateLimitValues.set(key, { count, ttl: rateLimitValues.get(key)?.ttl ?? -1 });
+        return count;
+      },
+      async pTTL(key) {
+        return rateLimitValues.get(key)?.ttl ?? -2;
+      },
+      async pExpire(key, milliseconds) {
+        redisRateLimitCalls.push({ key, milliseconds });
+        rateLimitValues.get(key).ttl = milliseconds;
+        return true;
+      }
+    };
+    const redisRateLimitStore = new devAuthKit.RedisRateLimitStore(mockRateLimitRedis, {
+      keyPrefix: "test:rate:"
+    });
+    assert(
+      await redisRateLimitStore.increment("login:ip:abc:1", 60_000) === 1 &&
+        await redisRateLimitStore.increment("login:ip:abc:1", 60_000) === 2 &&
+        redisRateLimitCalls.length === 1 &&
+        redisRateLimitCalls[0].key === "test:rate:login:ip:abc:1" &&
+        redisRateLimitCalls[0].milliseconds === 60_000,
+      "Redis rate-limit adapter increments atomically and applies expiry to new counters"
+    );
+
+    const rateLimitApp = express();
+    devAuthKit(rateLimitApp, {
+      jwtSecret: "rate-limit-test-jwt-secret",
+      sessionSecret: "rate-limit-test-session-secret",
+      rateLimit: {
+        googleStart: { windowMs: 60_000, max: 2, perIp: true, perEmail: false },
+        verifyMagicLink: {
+          windowMs: 60_000,
+          max: 1,
+          perIp: false,
+          perEmail: true,
+          perEmailMax: 1
+        }
+      }
+    });
+    const rateLimitServer = rateLimitApp.listen(0);
+    try {
+      const rateLimitUrl = `http://localhost:${rateLimitServer.address().port}`;
+      const firstLimitedRequest = await fetch(`${rateLimitUrl}/auth/google`);
+      const secondLimitedRequest = await fetch(`${rateLimitUrl}/auth/google`);
+      const thirdLimitedRequest = await fetch(`${rateLimitUrl}/auth/google`);
+      const rateLimitBody = await thirdLimitedRequest.json();
+      assert(
+        firstLimitedRequest.headers.has("ratelimit-limit") &&
+          secondLimitedRequest.status !== 429 &&
+          thirdLimitedRequest.status === 429 &&
+          thirdLimitedRequest.headers.has("retry-after") &&
+          rateLimitBody.retryAfterSeconds > 0,
+        "Auth route rate limits return standard headers and a 429 response after the configured limit"
+      );
+      const firstEmailLimitRequest = await fetch(
+        `${rateLimitUrl}/auth/verify-magic?email=limit%40example.com`
+      );
+      const secondEmailLimitRequest = await fetch(
+        `${rateLimitUrl}/auth/verify-magic?email=limit%40example.com`
+      );
+      assert(
+        firstEmailLimitRequest.status !== 429 &&
+          secondEmailLimitRequest.status === 429 &&
+          secondEmailLimitRequest.headers.get("ratelimit-limit") === "1",
+        "Per-email rate limits identify query-string email addresses independently of IP"
+      );
+    } finally {
+      rateLimitServer.close();
+    }
+
+    const failedRateLimitApp = express();
+    devAuthKit(failedRateLimitApp, {
+      jwtSecret: "rate-limit-failure-jwt-secret",
+      sessionSecret: "rate-limit-failure-session-secret",
+      rateLimitStore: {
+        async increment() {
+          throw new Error("simulated store outage");
+        }
+      }
+    });
+    const failedRateLimitServer = failedRateLimitApp.listen(0);
+    try {
+      const failedRateLimitResponse = await fetch(
+        `http://localhost:${failedRateLimitServer.address().port}/auth/google`
+      );
+      assert(
+        failedRateLimitResponse.status === 503 &&
+          (await failedRateLimitResponse.json()).error === "Rate-limit service unavailable",
+        "Rate-limit storage failures fail explicitly with HTTP 503"
+      );
+    } finally {
+      failedRateLimitServer.close();
+    }
+
+    let invalidRateLimitRejected = false;
+    try {
+      devAuthKit(express(), {
+        rateLimit: { requestOtp: { windowMs: 0, max: 1 } }
+      });
+    } catch (error) {
+      invalidRateLimitRejected = error instanceof TypeError;
+    }
+    assert(invalidRateLimitRejected, "Invalid rate-limit windows are rejected during initialization");
+
     const prismaCalls = [];
     const prismaUserAdapter = devAuthKit.prismaAdapter({
       account: {
@@ -462,6 +571,461 @@ async function runTests() {
       global.fetch = originalFetch;
       googleServer.close();
     }
+
+    console.log("\n🔄 Testing refresh-token rotation and revocation...");
+    const refreshEntries = new Map();
+    const refreshOtpStore = {
+      async get(email) {
+        return refreshEntries.get(email) || null;
+      },
+      async set(email, entry) {
+        refreshEntries.set(email, { ...entry });
+      },
+      async delete(email) {
+        refreshEntries.delete(email);
+      },
+      async recordAttempt(email) {
+        const entry = refreshEntries.get(email);
+        if (!entry) return 0;
+        return ++entry.attempts;
+      }
+    };
+    const refreshTokenStore = new devAuthKit.MemoryRefreshTokenStore();
+    const refreshApp = express();
+    devAuthKit(refreshApp, {
+      jwtSecret: "refresh-test-jwt-secret",
+      sessionSecret: "refresh-test-session-secret",
+      otpStore: refreshOtpStore,
+      refreshTokenStore,
+      refreshTokens: { accessTokenExpiresIn: "15m", refreshTokenExpiresInDays: 1 },
+      userAdapter: {
+        async findOrCreateUser({ email }) {
+          return { id: "shared-refresh-user", email, role: "user" };
+        }
+      },
+      devMode: true
+    });
+    refreshApp.get("/api/private", devAuthKit.requireAuth, (req, res) => {
+      res.json({ user: req.user });
+    });
+    const refreshServer = refreshApp.listen(0);
+    try {
+      const refreshUrl = `http://localhost:${refreshServer.address().port}`;
+      const loginRefreshUser = async (email) => {
+        const request = await originalFetch(`${refreshUrl}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+        if (!request.ok) throw new Error("Failed to request refresh-test OTP");
+        const otp = refreshEntries.get(email)?.otp;
+        const verify = await originalFetch(`${refreshUrl}/auth/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, otp })
+        });
+        const data = await verify.json();
+        const cookies = verify.headers.get("set-cookie") || "";
+        const cookieHeaders = verify.headers.getSetCookie?.() || [cookies];
+        const refreshCookieHeader = cookieHeaders.find((cookie) => cookie.startsWith("devauth_token_refresh=")) || "";
+        const refreshCookie = refreshCookieHeader.match(/devauth_token_refresh=([^;,]+)/)?.[1];
+        if (!verify.ok || !data.token || !refreshCookie) throw new Error("Refresh token login did not issue expected credentials");
+        return {
+          token: data.token,
+          refreshCookie,
+          user: data.user,
+          exposesRefreshToken: Object.hasOwn(data, "refreshToken"),
+          refreshCookieHttpOnly: /;\s*HttpOnly/i.test(refreshCookieHeader)
+        };
+      };
+
+      const rotatedLogin = await loginRefreshUser("rotate@example.com");
+      assert(
+        rotatedLogin.user.id === "shared-refresh-user" &&
+          !rotatedLogin.exposesRefreshToken &&
+          rotatedLogin.refreshCookieHttpOnly,
+        "Refresh-enabled login uses a stable user identity and keeps its token in an httpOnly cookie"
+      );
+      const rotateResponse = await originalFetch(`${refreshUrl}/auth/refresh`, {
+        method: "POST",
+        headers: { Cookie: `devauth_token_refresh=${rotatedLogin.refreshCookie}` }
+      });
+      const rotatedData = await rotateResponse.json();
+      const rotatedCookie = (rotateResponse.headers.get("set-cookie") || "")
+        .match(/devauth_token_refresh=([^;,]+)/)?.[1];
+      assert(
+        rotateResponse.ok &&
+          rotatedData.refreshEnabled === true &&
+          rotatedData.token !== rotatedLogin.token &&
+          rotatedCookie &&
+          rotatedCookie !== rotatedLogin.refreshCookie,
+        `Refresh endpoint rotates the httpOnly refresh token and issues a new access token (status ${rotateResponse.status}; enabled ${rotatedData.refreshEnabled}; token changed ${rotatedData.token !== rotatedLogin.token}; cookie ${Boolean(rotatedCookie)}; cookie changed ${rotatedCookie !== rotatedLogin.refreshCookie})`
+      );
+
+      const reuseResponse = await originalFetch(`${refreshUrl}/auth/refresh`, {
+        method: "POST",
+        headers: { Cookie: `devauth_token_refresh=${rotatedLogin.refreshCookie}` }
+      });
+      const afterReuse = await originalFetch(`${refreshUrl}/api/private`, {
+        headers: { Authorization: `Bearer ${rotatedData.token}` }
+      });
+      assert(
+        reuseResponse.status === 401 && afterReuse.status === 401,
+        "Refresh-token reuse revokes the complete family and its access tokens"
+      );
+
+      const currentLogin = await loginRefreshUser("current-revoke@example.com");
+      const currentRevoke = await originalFetch(`${refreshUrl}/auth/sessions/revoke`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${currentLogin.token}` }
+      });
+      const revokedCurrentAccess = await originalFetch(`${refreshUrl}/api/private`, {
+        headers: { Authorization: `Bearer ${currentLogin.token}` }
+      });
+      assert(
+        currentRevoke.ok && revokedCurrentAccess.status === 401,
+        "Current-session revocation immediately rejects that session's access token"
+      );
+
+      const allLoginA = await loginRefreshUser("all-a@example.com");
+      const allLoginB = await loginRefreshUser("all-b@example.com");
+      const revokeAllResponse = await originalFetch(`${refreshUrl}/auth/sessions/revoke-all`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${allLoginA.token}` }
+      });
+      const revokedAllAccess = await originalFetch(`${refreshUrl}/api/private`, {
+        headers: { Authorization: `Bearer ${allLoginB.token}` }
+      });
+      assert(
+        revokeAllResponse.ok && revokedAllAccess.status === 401,
+        "Revoke-all invalidates access tokens from every session for the user"
+      );
+
+      const logoutLogin = await loginRefreshUser("logout-revoke@example.com");
+      const refreshLogout = await originalFetch(`${refreshUrl}/auth/logout`, {
+        method: "POST",
+        headers: { Cookie: `devauth_token_refresh=${logoutLogin.refreshCookie}` }
+      });
+      const logoutRevokedAccess = await originalFetch(`${refreshUrl}/api/private`, {
+        headers: { Authorization: `Bearer ${logoutLogin.token}` }
+      });
+      assert(
+        refreshLogout.ok && logoutRevokedAccess.status === 401,
+        "Logout revokes the refresh-token family and current access token"
+      );
+    } finally {
+      refreshServer.close();
+    }
+
+    let sdkRefreshCalls = 0;
+    let sdkProtectedCalls = 0;
+    const refreshSdk = new DevAuthClient({
+      apiUrl: "https://auth.example.test",
+      customFetch: async (url, options = {}) => {
+        if (url.endsWith("/auth/verify")) {
+          return new Response(JSON.stringify({
+            token: "old-access-token",
+            user: { email: "sdk-refresh@example.com" },
+            refreshEnabled: true
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.endsWith("/auth/refresh")) {
+          sdkRefreshCalls++;
+          return new Response(JSON.stringify({
+            token: "new-access-token",
+            user: { email: "sdk-refresh@example.com" },
+            refreshEnabled: true,
+            expiresIn: "15m"
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.endsWith("/api/private")) {
+          sdkProtectedCalls++;
+          if (options.headers.get("Authorization") === "Bearer old-access-token") {
+            return new Response(JSON.stringify({ error: "expired" }), { status: 401 });
+          }
+          return new Response(JSON.stringify({ success: true }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ message: "ok" }), { status: 200 });
+      }
+    });
+    await refreshSdk.verifyOTP("sdk-refresh@example.com", "123456");
+    const sdkRefreshedResponses = await Promise.all([
+      refreshSdk.fetch("/api/private"),
+      refreshSdk.fetch("/api/private")
+    ]);
+    assert(
+      sdkRefreshedResponses.every((response) => response.ok) &&
+        sdkRefreshCalls === 1 &&
+        sdkProtectedCalls === 4 &&
+        refreshSdk.getToken() === "new-access-token",
+      "Client SDK shares concurrent refresh requests and retries with the rotated access token"
+    );
+
+    console.log("\n🛡️ Testing Role-Based Access Control (RBAC requireRole)...");
+    const { requireRole, drizzleAdapter, mongooseAdapter } = devAuthKit;
+    const rbacApp = express();
+    devAuthKit(rbacApp, {
+      jwtSecret: "rbac-test-jwt-secret",
+      sessionSecret: "rbac-test-session-secret",
+      devMode: true
+    });
+    rbacApp.get("/api/admin-only", requireRole("admin"), (req, res) => {
+      res.json({ secret: "admin-data" });
+    });
+    rbacApp.get("/api/staff-only", requireRole(["admin", "moderator"]), (req, res) => {
+      res.json({ secret: "staff-data" });
+    });
+    const rbacServer = rbacApp.listen(0);
+    const rbacUrl = `http://localhost:${rbacServer.address().port}`;
+
+    try {
+      // 1. Unauthenticated request to requireRole route -> 401
+      const unauthRbac = await fetch(`${rbacUrl}/api/admin-only`);
+      assert(unauthRbac.status === 401, "requireRole returns 401 Unauthorized for unauthenticated requests");
+
+      // 2. User with role 'user' -> 403 Forbidden
+      const jwt = require("jsonwebtoken");
+      const userToken = jwt.sign({ email: "user@test.com", role: "user" }, "rbac-test-jwt-secret");
+      const forbiddenRes = await fetch(`${rbacUrl}/api/admin-only`, {
+        headers: { Authorization: `Bearer ${userToken}` }
+      });
+      assert(forbiddenRes.status === 403, "requireRole returns 403 Forbidden when user does not have required role");
+
+      // 3. User with role 'admin' -> 200 OK
+      const adminToken = jwt.sign({ email: "admin@test.com", role: "admin" }, "rbac-test-jwt-secret");
+      const adminRes = await fetch(`${rbacUrl}/api/admin-only`, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      });
+      const adminData = await adminRes.json();
+      assert(adminRes.ok && adminData.secret === "admin-data", "requireRole allows access when user role matches");
+
+      // 4. User with role 'moderator' accessing staff route with array allowed roles -> 200 OK
+      const modToken = jwt.sign({ email: "mod@test.com", role: "moderator" }, "rbac-test-jwt-secret");
+      const staffRes = await fetch(`${rbacUrl}/api/staff-only`, {
+        headers: { Authorization: `Bearer ${modToken}` }
+      });
+      assert(staffRes.ok, "requireRole allows access when user role matches any allowed role in array");
+    } finally {
+      rbacServer.close();
+    }
+
+    console.log("\n💧 Testing Drizzle ORM and Mongoose Database Adapters...");
+    // Drizzle test
+    const mockDrizzleRows = [];
+    const mockDrizzleTable = { id: "id", email: "email", role: "role" };
+    const mockDrizzleDb = {
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve(mockDrizzleRows)
+        })
+      }),
+      insert: () => ({
+        values: (val) => ({
+          returning: () => {
+            const user = { id: "drizzle-1", email: val.email, role: "member" };
+            mockDrizzleRows.push(user);
+            return Promise.resolve([user]);
+          }
+        })
+      })
+    };
+    const drizzle = drizzleAdapter(mockDrizzleDb, { table: mockDrizzleTable });
+    const drizzleUser1 = await drizzle.findOrCreateUser({ email: "drizzle@example.com" });
+    assert(
+      drizzleUser1.id === "drizzle-1" && drizzleUser1.email === "drizzle@example.com" && drizzleUser1.role === "member",
+      "drizzleAdapter creates and returns user record with normalized claims"
+    );
+
+    // Mongoose test
+    const mockMongoDb = [];
+    const mockMongooseModel = {
+      findOneAndUpdate: (filter) => ({
+        lean: async () => {
+          let user = mockMongoDb.find((u) => u.email === filter.email);
+          if (!user) {
+            user = { _id: "mongo-id-1", email: filter.email, role: "guest" };
+            mockMongoDb.push(user);
+          }
+          return user;
+        }
+      })
+    };
+    const mongoose = mongooseAdapter(mockMongooseModel);
+    const mongoUser1 = await mongoose.findOrCreateUser({ email: "mongo@example.com" });
+    assert(
+      mongoUser1.id === "mongo-id-1" && mongoUser1.email === "mongo@example.com" && mongoUser1.role === "guest",
+      "mongooseAdapter finds/creates and returns user record with mapped id and role"
+    );
+
+    console.log("\n🔗 Testing Magic Link Authentication...");
+    const magicApp = express();
+    devAuthKit(magicApp, {
+      jwtSecret: "magic-test-jwt-secret",
+      sessionSecret: "magic-test-session-secret",
+      devMode: true,
+      magicLink: true
+    });
+    const magicServer = magicApp.listen(0);
+    const magicUrl = `http://localhost:${magicServer.address().port}`;
+
+    try {
+      const magicReqRes = await fetch(`${magicUrl}/auth/request-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "magic@example.com", magicLink: true })
+      });
+      const magicReqData = await magicReqRes.json();
+      assert(
+        magicReqRes.ok && Boolean(magicReqData.magicLinkUrl),
+        "requestOTP generates and returns magicLinkUrl when magicLink is enabled"
+      );
+
+      const parsedMagicUrl = new URL(magicReqData.magicLinkUrl);
+      const magicToken = parsedMagicUrl.searchParams.get("token");
+
+      // Verify valid magic link
+      const magicVerifyRes = await fetch(`${magicUrl}/auth/verify-magic?token=${magicToken}&email=magic@example.com`);
+      const magicVerifyData = await magicVerifyRes.json();
+      assert(
+        magicVerifyRes.ok && magicVerifyData.token && magicVerifyData.user.email === "magic@example.com",
+        "verifyMagicLink successfully authenticates user and returns JWT token"
+      );
+
+      // Replay magic link -> 401
+      const magicReplayRes = await fetch(`${magicUrl}/auth/verify-magic?token=${magicToken}`);
+      assert(magicReplayRes.status === 401, "verifyMagicLink rejects already-consumed magic link tokens");
+
+      // Client SDK verifyMagicLink
+      const clientReqRes = await fetch(`${magicUrl}/auth/request-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "magic-sdk@example.com", magicLink: true })
+      });
+      const clientReqData = await clientReqRes.json();
+      const sdkMagicToken = new URL(clientReqData.magicLinkUrl).searchParams.get("token");
+      const magicSdk = new DevAuthClient({ apiUrl: magicUrl });
+      const sdkMagicVerify = await magicSdk.verifyMagicLink(sdkMagicToken, "magic-sdk@example.com");
+      assert(
+        magicSdk.isAuthenticated() && sdkMagicVerify.user.email === "magic-sdk@example.com",
+        "DevAuthClient.verifyMagicLink stores credentials and updates auth state"
+      );
+    } finally {
+      magicServer.close();
+    }
+
+    console.log("\n🐙 Testing GitHub OAuth 2.0 with PKCE and profile identity mapping...");
+    const githubCalls = [];
+    const githubApp = express();
+    devAuthKit(githubApp, {
+      jwtSecret: "github-oauth-test-secret",
+      sessionSecret: "github-oauth-session-secret",
+      github: {
+        clientId: "test-gh-client-id",
+        clientSecret: "test-gh-client-secret",
+        callbackURL: "http://localhost:3000/auth/github/callback"
+      },
+      userAdapter: {
+        async findOrCreateUser({ email }) {
+          githubCalls.push({ email });
+          return { id: "github-user-42", email, role: "developer" };
+        }
+      },
+      mapUserPayload: (user, identity) => ({
+        displayName: identity?.name,
+        authProvider: identity?.provider,
+        username: identity?.username
+      })
+    });
+    const githubServer = githubApp.listen(0);
+    const ghOriginalFetch = global.fetch;
+    let ghEmailVerified = true;
+    try {
+      const ghUrl = `http://localhost:${githubServer.address().port}`;
+      const startGhOAuth = async () => {
+        const response = await ghOriginalFetch(`${ghUrl}/auth/github`, { redirect: "manual" });
+        const location = response.headers.get("location");
+        const sessionCookie = (response.headers.get("set-cookie") || "").split(";")[0];
+        return {
+          response,
+          authorizationURL: location ? new URL(location) : null,
+          sessionCookie
+        };
+      };
+
+      const invalidGhStart = await startGhOAuth();
+      assert(
+        invalidGhStart.response.status === 302 &&
+          invalidGhStart.authorizationURL?.hostname === "github.com" &&
+          invalidGhStart.authorizationURL.searchParams.get("code_challenge_method") === "S256" &&
+          Boolean(invalidGhStart.authorizationURL.searchParams.get("code_challenge")),
+        "GitHub sign-in redirects to github.com with OAuth state and PKCE code challenge"
+      );
+
+      const invalidGhResponse = await ghOriginalFetch(
+        `${ghUrl}/auth/github/callback?code=auth-code&state=invalid`,
+        { headers: { Cookie: invalidGhStart.sessionCookie } }
+      );
+      assert(invalidGhResponse.status === 400, "GitHub callback rejects an invalid OAuth state");
+
+      const validGhStart = await startGhOAuth();
+      const authorizationURL = validGhStart.authorizationURL;
+
+      global.fetch = async (input, init = {}) => {
+        const url = input.toString();
+        if (url === "https://github.com/login/oauth/access_token") {
+          return new Response(JSON.stringify({ access_token: "mock-gh-access-token", token_type: "bearer" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (url === "https://api.github.com/user") {
+          return new Response(JSON.stringify({
+            id: 1234567,
+            login: "octocat",
+            name: "Mona Lisa Octocat",
+            avatar_url: "https://github.com/images/error/octocat_happy.gif",
+            email: null
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url === "https://api.github.com/user/emails") {
+          return new Response(JSON.stringify([
+            { email: "octocat@github.com", primary: true, verified: ghEmailVerified }
+          ]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return ghOriginalFetch(input, init);
+      };
+
+      const ghCallbackRes = await ghOriginalFetch(
+        `${ghUrl}/auth/github/callback?code=mock-gh-code&state=${encodeURIComponent(authorizationURL.searchParams.get("state"))}`,
+        { headers: { Cookie: validGhStart.sessionCookie } }
+      );
+      const ghCallbackData = await ghCallbackRes.json();
+      assert(
+        ghCallbackRes.ok &&
+          ghCallbackData.user.id === "github-user-42" &&
+          ghCallbackData.user.email === "octocat@github.com" &&
+          ghCallbackData.user.authProvider === "github" &&
+          ghCallbackData.user.username === "octocat",
+        "GitHub callback exchanges PKCE code, fetches emails, resolves user adapter, and sets tokens"
+      );
+
+      // Replay rejection
+      const ghReplay = await ghOriginalFetch(
+        `${ghUrl}/auth/github/callback?code=mock-gh-code&state=${encodeURIComponent(authorizationURL.searchParams.get("state"))}`,
+        { headers: { Cookie: validGhStart.sessionCookie } }
+      );
+      assert(ghReplay.status === 400, "GitHub OAuth state cannot be replayed after successful login");
+    } finally {
+      global.fetch = ghOriginalFetch;
+      githubServer.close();
+    }
+
+    console.log("\n⚛️ Testing React Hooks export...");
+    const { AuthProvider, useAuth } = require("./client/react/index.js");
+    assert(
+      typeof AuthProvider === "function" && typeof useAuth === "function",
+      "devauthkit/react exports AuthProvider component and useAuth hook"
+    );
 
     console.log(`\n🎉 Results: ${passed}/${total} tests passed!\n`);
   } catch (err) {

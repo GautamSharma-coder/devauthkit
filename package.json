@@ -16,6 +16,26 @@
     "./adapters/prisma": {
       "types": "./server/adapters/prisma.d.ts",
       "default": "./server/adapters/prisma.js"
+    },
+    "./adapters/drizzle": {
+      "types": "./server/adapters/drizzle.d.ts",
+      "default": "./server/adapters/drizzle.js"
+    },
+    "./adapters/mongoose": {
+      "types": "./server/adapters/mongoose.d.ts",
+      "default": "./server/adapters/mongoose.js"
+    },
+    "./react": {
+      "types": "./client/react/index.d.ts",
+      "default": "./client/react/index.js"
+    }
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
     }
   },
   "files": [

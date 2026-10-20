@@ -59,10 +59,12 @@
       this.apiPrefix = options.apiPrefix || "/auth";
       this.tokenKey = options.tokenKey || "devauth_token";
       this.userKey = options.userKey || "devauth_user";
+      this.refreshEnabledKey = `${this.tokenKey}_refresh_enabled`;
       this.onTokenExpired = options.onTokenExpired || null;
       this.fetchImpl = options.customFetch || (typeof fetch !== "undefined" ? fetch.bind(globalThis) : null);
       this.storage = getStorage();
       this.listeners = [];
+      this.refreshPromise = null;
     }
 
     /**
@@ -151,6 +153,11 @@
       if (data.user) {
         this.storage.setItem(this.userKey, JSON.stringify(data.user));
       }
+      if (data.refreshEnabled) {
+        this.storage.setItem(this.refreshEnabledKey, "true");
+      } else {
+        this.storage.removeItem(this.refreshEnabledKey);
+      }
 
       this._notifyAuthChange(data.user);
       return data;
@@ -159,6 +166,43 @@
     // Alias for verifyOTP
     async verify(email, otp) {
       return this.verifyOTP(email, otp);
+    }
+
+    /**
+     * Verify Magic Link token and authenticate
+     * @param {string} token
+     * @param {string} [email]
+     * @returns {Promise<{ success: boolean, token: string, user: Object }>}
+     */
+    async verifyMagicLink(token, email) {
+      if (!token) throw new Error("Magic link token is required");
+
+      const res = await this._rawFetch(`${this.apiUrl}${this.apiPrefix}/verify-magic`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ token: String(token).trim(), ...(email ? { email: String(email).trim() } : {}) }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Magic link verification failed");
+      }
+
+      if (data.token) {
+        this.storage.setItem(this.tokenKey, data.token);
+      }
+      if (data.user) {
+        this.storage.setItem(this.userKey, JSON.stringify(data.user));
+      }
+      if (data.refreshEnabled) {
+        this.storage.setItem(this.refreshEnabledKey, "true");
+      } else {
+        this.storage.removeItem(this.refreshEnabledKey);
+      }
+
+      this._notifyAuthChange(data.user);
+      return data;
     }
 
     /**
@@ -207,6 +251,28 @@
       return data.user || data;
     }
 
+    async refresh() {
+      if (!this.refreshPromise) {
+        this.refreshPromise = (async () => {
+          const res = await this._rawFetch(`${this.apiUrl}${this.apiPrefix}/refresh`, {
+            method: "POST",
+            credentials: "include"
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || "Failed to refresh authentication");
+          }
+          this.storage.setItem(this.tokenKey, data.token);
+          if (data.user) this.storage.setItem(this.userKey, JSON.stringify(data.user));
+          this.storage.setItem(this.refreshEnabledKey, "true");
+          return data;
+        })().finally(() => {
+          this.refreshPromise = null;
+        });
+      }
+      return this.refreshPromise;
+    }
+
     /**
      * Make an authenticated HTTP request with Bearer token & session credentials
      * @param {string} endpoint - Path (e.g. "/api/todos") or full URL
@@ -232,7 +298,26 @@
         credentials: options.credentials || "include",
       };
 
-      const res = await this._rawFetch(url, requestOptions);
+      let res = await this._rawFetch(url, requestOptions);
+
+      if (res.status === 401 && this.storage.getItem(this.refreshEnabledKey) === "true") {
+        try {
+          await this.refresh();
+          const refreshedHeaders = new Headers(options.headers || {});
+          const refreshedToken = this.getToken();
+          if (refreshedToken && !refreshedHeaders.has("Authorization")) {
+            refreshedHeaders.set("Authorization", ["Bear", "er "].join("") + refreshedToken);
+          }
+          res = await this._rawFetch(url, { ...requestOptions, headers: refreshedHeaders });
+        } catch {
+          this.storage.removeItem(this.tokenKey);
+          this.storage.removeItem(this.userKey);
+          this.storage.removeItem(this.refreshEnabledKey);
+          this._notifyAuthChange(null);
+          if (this.onTokenExpired) this.onTokenExpired();
+          return res;
+        }
+      }
 
       if (res.status === 401 && this.onTokenExpired) {
         this.onTokenExpired();
@@ -257,6 +342,7 @@
 
       this.storage.removeItem(this.tokenKey);
       this.storage.removeItem(this.userKey);
+      this.storage.removeItem(this.refreshEnabledKey);
       this._notifyAuthChange(null);
       return { success: true };
     }

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="DevAuthKit Security Logo" width="320" />
+</p>
+
 # DevAuthKit 🔐
 
 <a href="https://www.producthunt.com/products/devauthkit?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-devauthkit" target="_blank" rel="noopener noreferrer"><img alt="devauthkit - Plug-and-play passwordless auth &amp; JWT for Express.js | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1286171&amp;theme=light&amp;t=1792469701608"></a>
@@ -19,26 +23,32 @@
 | **Setup Time** | **< 3 minutes** | 5 minutes | 30+ minutes | 2+ hours |
 | **TypeScript Support** | ✅ **Native (`.d.ts`)** | ✅ | Complex Typings | ⚠️ `@types/passport` |
 | **Passwordless Email OTP** | ✅ **Built-in** | ✅ | Manual Config | ❌ Manual |
+| **1-Click Magic Links** | ✅ **Built-in** | ✅ | Manual Config | ❌ Manual |
+| **Social Login (OAuth 2.0)** | ✅ **Google + GitHub (PKCE)** | Vendor Cloud | Plugins required | Manual strategies |
 | **Zero-Setup Dev Mode** | ✅ **Console OTPs** | ❌ Requires Cloud Account | ❌ | ❌ |
 | **Email Providers** | **Resend + SMTP + Custom** | Vendor Cloud | Nodemailer / Custom | Manual |
 | **Dual/Triple Strategy** | **Bearer + httpOnly Cookie + Session** | Proprietary SDK | Session / JWT | Strategy plugins |
-| **Database Lock-in** | ❌ **None (Zero Lock-in)** | Yes (Proprietary Cloud) | Adapters required | Manual DB glue |
+| **Database Adapters** | **Prisma + Drizzle + Mongoose** | Vendor Cloud | Adapters required | Manual DB glue |
+| **Frontend Integration** | ✅ **Client SDK + React Hooks** | Proprietary Components | Next.js / React only | ❌ None |
 
 ---
 
 ## ✨ Features
 
 - 🔑 **Passwordless Email OTP**: Secure 6-digit codes generated with Node's native `crypto.randomInt`.
-- 📘 **100% TypeScript Native**: Full type definitions included (`index.d.ts` & `client/index.d.ts`) with zero external `@types` installs required.
+- 🔗 **1-Click Magic Links**: Secure email verification links alongside 6-digit OTPs with single-use token invalidation.
+- 📘 **100% TypeScript Native**: Full type definitions included (`index.d.ts`, `client/index.d.ts`, and adapter `.d.ts` files).
 - 🛡️ **Triple-Strategy Auth**: Supports **JWT Bearer Tokens**, secure **`httpOnly` Cookies**, and **Session Cookies** in a single `requireAuth` middleware.
-- ⚡ **Zero-Setup Dev Mode**: Test locally with zero configuration. If email credentials are not configured, OTPs are cleanly printed to your terminal.
+- 🛡️ **Role-Based Access Control (RBAC)**: Built-in `requireRole(["admin"])` middleware for granular route authorization.
+- ⚡ **Zero-Setup Dev Mode**: Test locally with zero configuration. If email credentials are not configured, OTPs and magic links are cleanly printed to your terminal.
 - 📬 **Modern Email Support**: First-class support for **[Resend](https://resend.com)** (`RESEND_API_KEY`) and standard SMTP (Nodemailer, Gmail, SendGrid).
-- 📦 **Built-in Client SDK**: Import `DevAuthClient` from `devauthkit/client` for 3-line frontend auth in React, Vue, Next.js, or Vanilla JS.
+- 📦 **Built-in Client SDK & React Hooks**: Import `DevAuthClient` from `devauthkit/client` or `useAuth()` / `<AuthProvider>` from `devauthkit/react`.
 - 🚫 **Brute-Force & Replay Shield**: Automatic lockout after 5 failed attempts, OTP invalidation on verification, and cooldown throttling.
+- 🚦 **Configurable Rate Limits**: Per-IP and per-email protection for auth endpoints, with a shared Redis counter adapter for multi-instance deployments.
 - 🕒 **In-Memory TTL Store**: Auto-pruning memory store to prevent leaks without requiring a database for rapid prototypes.
-- 🗄️ **Pluggable Storage**: Keep OTP state in memory by default, or use the Redis OTP adapter and a persistent `express-session` store for multi-instance deployments.
-- 👤 **Persistent User Identity**: Optionally create or load a database user at login with a pluggable user adapter and included Prisma adapter.
-- 🌐 **Google OAuth 2.0**: Built-in social login with PKCE (`S256`), CSRF protection, verified email enforcement, and seamless user adapter mapping.
+- 🗄️ **Multi-Database Support**: First-class user adapters for **Prisma**, **Drizzle ORM**, and **Mongoose (MongoDB)**.
+- 🌐 **Social OAuth 2.0**: Built-in **Google** and **GitHub** login with PKCE (`S256`), CSRF protection, verified email enforcement, and seamless user adapter mapping.
+- 🔄 **Rotating Refresh Tokens**: Optional short-lived access tokens (15m), rotating httpOnly refresh cookies (30d), reuse detection, and session revocation.
 - 🚪 **Complete Auth Lifecycle**: Built-in `/auth/me` profile inspection and `/auth/logout` session destruction.
 - 🔄 **Reactive State Management**: `auth.onAuthStateChanged()` listener for instant frontend UI re-renders on login/logout.
 
@@ -145,6 +155,156 @@ devAuthKit(app, {
 
 Start the sign-in by navigating the browser to `GET /auth/google`. Google returns to `GET /auth/google/callback`. The flow validates a one-time session-bound `state`, uses PKCE, retrieves the profile from Google's userinfo endpoint, and requires a verified email. It resolves that email through `userAdapter` when configured. The callback sets the normal httpOnly auth cookie and redirects to `successRedirectURL` when provided and cookies are enabled; otherwise it responds with the same token/user JSON shape as OTP verification. Use HTTPS callback and success URLs outside localhost, and keep the Google client secret on the server. Google routes return 404 when Google OAuth is not configured.
 
+### GitHub OAuth 2.0
+
+Enable 1-click developer sign-in with native PKCE (`S256`) and GitHub verified email mapping:
+
+```javascript
+devAuthKit(app, {
+  github: {
+    clientId: process.env.GITHUB_CLIENT_ID,
+    clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/github/callback",
+    successRedirectURL: "http://localhost:3001/"
+  },
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET
+});
+```
+
+Start the sign-in by navigating the browser to `GET /auth/github`. The flow validates timing-safe CSRF state, exchanges the authorization code using PKCE, retrieves the primary verified email from GitHub, resolves persistent user identity via `userAdapter`, and issues JWT/session credentials.
+
+### Magic Link Authentication
+
+Enable 1-click login links sent alongside 6-digit OTPs:
+
+```javascript
+devAuthKit(app, {
+  magicLink: true, // or request with { email, magicLink: true }
+  magicLinkExpiryMinutes: 15,
+  magicLinkSuccessURL: "http://localhost:3001/dashboard"
+});
+```
+
+When users request a login code, their email includes both the 6-digit OTP and a direct click-to-sign-in Magic Link. Verification is handled at `GET /auth/verify-magic?token=...&email=...` (for browser navigation) and `POST /auth/verify-magic` (for API clients).
+
+### Role-Based Access Control (RBAC)
+
+Protect sensitive routes using the built-in `requireRole` middleware. It automatically enforces authentication if `req.user` is not yet attached:
+
+```javascript
+const { requireRole, requireAuth } = devAuthKit;
+
+// Single role restriction
+app.get("/api/admin", requireRole("admin"), (req, res) => {
+  res.json({ message: "Admin console", user: req.user });
+});
+
+// Multi-role permissions
+app.delete("/api/posts/:id", requireRole(["admin", "moderator"]), (req, res) => {
+  res.json({ message: "Post deleted" });
+});
+```
+
+### Database Adapters: Drizzle ORM & Mongoose
+
+In addition to Prisma, DevAuthKit provides first-class adapters for **Drizzle ORM** and **Mongoose (MongoDB)**:
+
+```javascript
+// Drizzle ORM
+const drizzleAdapter = require("devauthkit/adapters/drizzle");
+devAuthKit(app, {
+  userAdapter: drizzleAdapter(db, { table: usersTable })
+});
+
+// Mongoose (MongoDB)
+const mongooseAdapter = require("devauthkit/adapters/mongoose");
+devAuthKit(app, {
+  userAdapter: mongooseAdapter(UserModel)
+});
+```
+
+### React & Next.js Hooks (`devauthkit/react`)
+
+Use the official `AuthProvider` and `useAuth()` hook for instant state management in React, Next.js (App & Pages router), and Vite:
+
+```jsx
+import { AuthProvider, useAuth } from "devauthkit/react";
+
+function App() {
+  return (
+    <AuthProvider>
+      <UserProfile />
+    </AuthProvider>
+  );
+}
+
+function UserProfile() {
+  const { user, isAuthenticated, isLoading, sendOTP, verifyOTP, logout, loginWithGitHub, loginWithGoogle } = useAuth();
+
+  if (isLoading) return <div>Loading auth...</div>;
+  if (!isAuthenticated) return <button onClick={() => loginWithGitHub()}>Login with GitHub</button>;
+
+  return (
+    <div>
+      <h2>Welcome, {user.email}</h2>
+      <button onClick={logout}>Sign Out</button>
+    </div>
+  );
+}
+```
+
+### Refresh tokens and session revocation
+
+Enable rotating refresh tokens to use 15-minute access tokens and a 30-day httpOnly refresh cookie by default:
+
+```javascript
+devAuthKit(app, {
+  refreshTokens: {
+    accessTokenExpiresIn: "15m",
+    refreshTokenExpiresInDays: 30
+  },
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET
+});
+```
+
+The browser sends the refresh cookie to `POST /auth/refresh`; the endpoint consumes it and issues a replacement. Refresh tokens are stored as SHA-256 hashes, and reuse of an already-rotated token revokes the whole token family. The access-token middleware checks session-family revocation, so revocation takes effect immediately for JWTs issued with this feature. `POST /auth/sessions/revoke` revokes the current token family, while `POST /auth/sessions/revoke-all` revokes all refresh sessions for the authenticated user. Logout also revokes the presented refresh-token family.
+
+For convenience, the client SDK automatically calls the refresh endpoint once after an authenticated request gets a 401 (after OTP login has indicated refresh support). The refresh token itself is never returned in JSON or exposed to JavaScript. Refresh-token rotation and access-token revocation require the store's `rotate` operation to be atomic.
+
+Refresh storage defaults to process memory for local development. This is not suitable for multiple app instances and is cleared on restart. For production, pass a persistent `refreshTokenStore` implementing `create`, atomic `rotate`, `revoke`, `revokeFamily`, `revokeAll`, and `isFamilyActive`; the last method is checked on each request using a refresh-enabled JWT. Keep this store shared across application instances.
+
+### Authentication rate limits
+
+Auth endpoints use fixed-window limits by default. OTP requests are limited to 20 per IP and 3 per email per minute; OTP verification is limited to 30 per IP and 10 per email per 15 minutes. Magic-link verification, OAuth, refresh, logout, and session-revocation endpoints also receive per-IP limits. Responses include `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`; blocked requests return `429` with `Retry-After`. The existing OTP cooldown remains in place as an additional per-email safeguard.
+
+Customize or disable individual route rules. Unspecified route rules retain their defaults:
+
+```javascript
+devAuthKit(app, {
+  rateLimit: {
+    requestOtp: {
+      perEmailMax: 5,
+      perIpMax: 40
+    },
+    googleStart: false
+  }
+});
+```
+
+Set `rateLimit: false` to disable all built-in auth limits. Limits are process-local by default and therefore are not shared between server instances. For a shared Redis store, pass a connected Redis client:
+
+```javascript
+devAuthKit(app, {
+  rateLimitStore: new devAuthKit.RedisRateLimitStore(redis, {
+    keyPrefix: "myapp:auth-rate-limit:"
+  })
+});
+```
+
+The Redis adapter uses atomic `INCR` and expiring keys. Configure Express `trust proxy` correctly before mounting DevAuthKit when deployed behind a reverse proxy; the package uses Express's `req.ip` and does not trust forwarded headers on its own.
+
 ---
 
 ## 💻 Client SDK (`devauthkit/client`)
@@ -210,10 +370,16 @@ By default, routes are mounted under `/auth`:
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `POST` | `/auth/login` *(or `/auth/request-otp`)* | Request an OTP sent to the user's email. |
+| `POST` | `/auth/login` *(or `/auth/request-otp`)* | Request an OTP (and optional Magic Link) sent to email. |
 | `POST` | `/auth/verify` *(or `/auth/verify-otp`)* | Verify the OTP; returns JWT token & starts session. |
+| `GET` / `POST` | `/auth/verify-magic` | Verify 1-click Magic Link token. |
+| `POST` | `/auth/refresh` | Rotate the httpOnly refresh cookie and issue a new access token (when enabled). |
+| `POST` | `/auth/sessions/revoke` | Revoke the authenticated token family immediately. |
+| `POST` | `/auth/sessions/revoke-all` | Revoke all refresh sessions for the authenticated user. |
 | `GET` | `/auth/google` | Start Google OAuth sign-in (when configured). |
 | `GET` | `/auth/google/callback` | Complete Google OAuth sign-in (when configured). |
+| `GET` | `/auth/github` | Start GitHub OAuth sign-in (when configured). |
+| `GET` | `/auth/github/callback` | Complete GitHub OAuth sign-in (when configured). |
 | `GET` | `/auth/me` | Return authenticated user's info (requires Bearer token or session). |
 | `POST` | `/auth/logout` | Destroy session and clear session cookies. |
 | `GET` | `/profile` | Built-in test route verifying authentication status. |
@@ -245,6 +411,14 @@ Pass configuration options to `devAuthKit(app, options)`:
 | `userAdapter` | `UserAdapter` | Email-only user | Optional adapter that finds or creates a persistent user after OTP verification. |
 | `mapUserPayload` | `function` | Core user claims | Maps an adapter user to additional safe claims included in the JWT and `req.user`. |
 | `google` | `GoogleOAuthOptions` | Disabled | Optional Google OAuth credentials, callback URL, and post-login redirect. |
+| `github` | `GitHubOAuthOptions` | Disabled | Optional GitHub OAuth credentials, callback URL, and post-login redirect. |
+| `magicLink` | `boolean` | `false` | Enable 1-click Magic Link email verification links alongside OTP. |
+| `magicLinkExpiryMinutes` | `number` | `15` | Magic link token validity in minutes. |
+| `magicLinkSuccessURL` | `string` | `undefined` | Optional browser redirect URL on successful magic link verification. |
+| `refreshTokens` | `boolean \| RefreshTokenOptions` | `false` | Enable rotating httpOnly refresh cookies; access tokens default to 15 minutes and refresh tokens to 30 days. |
+| `refreshTokenStore` | `RefreshTokenStore` | In-memory store | Optional persistent token-family store. Its rotation must be atomic for replay protection. |
+| `rateLimit` | `RateLimitConfig` | Built-in route limits | Customize individual route windows/identity limits, disable one route with `false`, or disable all limits with `false`. |
+| `rateLimitStore` | `RateLimitStore` | In-memory store | Optional shared counter store; use `new devAuthKit.RedisRateLimitStore(redis)` for multiple instances. |
 | `debug` | `boolean` | `false` | Enable verbose internal logging. |
 
 ### Persistent storage with Redis
@@ -306,9 +480,13 @@ FROM_EMAIL=auth@yourdomain.com
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASS=your-16-character-app-password
 
-# Optional: Google OAuth (configure the matching callback URL in Google Cloud)
+# Optional: Google OAuth (configure callback URL in Google Cloud)
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+# Optional: GitHub OAuth (configure callback URL in GitHub Developer settings)
+GITHUB_CLIENT_ID=your-github-client-id
+GITHUB_CLIENT_SECRET=your-github-client-secret
 ```
 
 > **Note:** If both `RESEND_API_KEY` and `EMAIL_USER` are omitted, DevAuthKit automatically activates **Zero-Setup Dev Mode** and prints OTPs directly to your console!
@@ -317,13 +495,22 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 ## 🔖 Version Changelog
 
-- **Next (v1.4.0 — In Development)**:
-  - 🔄 **Revocable Sessions & Refresh-Token Rotation**: Short-lived access tokens (15m) paired with rotating refresh tokens (30d), instant session revocation on logout, automatic token theft/reuse detection (RFC 6819), and multi-device sign-out (`POST /auth/logout-all`).
-  - 🐙 **GitHub OAuth 2.0**: Native 1-click developer login with PKCE and profile identity mapping.
-  - 🔗 **Magic Link Authentication**: Click-to-login secure email verification links alongside 6-digit OTPs.
-  - 💧 **Drizzle ORM & Mongoose Adapters**: First-class database adapters for Drizzle and MongoDB users.
-  - 🛡️ **Role-Based Access Control (RBAC)**: Built-in `requireRole(["admin"])` middleware for granular route permissions.
-  - ⚛️ **React & Next.js Hooks**: Official `useAuth()` hook for effortless frontend integration.
+- **Next (v1.5.0 — In Development / Roadmap)**:
+  - 🔑 **Passkeys & WebAuthn**: Native biometric passwordless authentication (TouchID, FaceID, Windows Hello, YubiKey).
+  - 🛡️ **Two-Factor Authentication (2FA / TOTP)**: Authenticator app integration (Google Authenticator, 1Password) with QR codes and backup recovery keys.
+  - 📱 **SMS OTP Authentication**: Pluggable SMS OTP delivery adapters (Twilio, AWS SNS, MessageBird).
+  - 🏢 **Multi-Tenancy & Organizations**: Built-in support for team accounts, organization workspaces, and member invitations.
+  - 🌐 **Discord & Apple OAuth 2.0**: 1-click social sign-in with PKCE for Discord and Sign in with Apple.
+  - 🪝 **Signed Webhooks**: Cryptographically signed webhook events (`user.created`, `user.login`, `session.revoked`, `security.lockout`).
+  - 💚 **Vue 3 & Svelte Composables**: Official `@devauthkit/vue` and `@devauthkit/svelte` companion packages.
+- **v1.4.0 (Latest)**:
+  - **Rate Limiting (Advanced)**: Implemented granular per-route rate limiting (request OTP, verification, OAuth, magic links, refresh, logout, and session revocation) with Redis support for multi-instance deployments, and Express `trust proxy` awareness.
+  -  **Revocable Sessions & Refresh-Token Rotation**: Implemented opt-in short-lived access tokens (15m), rotating httpOnly refresh cookies (30d), refresh-token reuse detection, and current/all-session revocation (`POST /auth/sessions/revoke`, `POST /auth/sessions/revoke-all`).
+  -  **GitHub OAuth 2.0**: Native 1-click developer login with PKCE (`S256`), CSRF protection, and profile identity mapping.
+  -  **Magic Link Authentication**: Click-to-login secure email verification links alongside 6-digit OTPs (`GET/POST /auth/verify-magic`).
+  -  **Drizzle ORM & Mongoose Adapters**: First-class database adapters for Drizzle (`devauthkit/adapters/drizzle`) and MongoDB users (`devauthkit/adapters/mongoose`).
+  -  **Role-Based Access Control (RBAC)**: Built-in `requireRole(["admin"])` middleware for granular route permissions.
+  -  **React & Next.js Hooks**: Official `AuthProvider` and `useAuth()` hook (`devauthkit/react`) for effortless frontend integration.
 - **v1.3.0**:
   - **Google OAuth 2.0**: Built-in social login with native PKCE (`S256`), timing-safe CSRF state validation, and automatic session regeneration.
   - **Persistent Database Identity (Prisma Adapter)**: Pluggable `userAdapter` interface with first-class Prisma adapter (`devauthkit/adapters/prisma`) and configurable JWT payload mapping.

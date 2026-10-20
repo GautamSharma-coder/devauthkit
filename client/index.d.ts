@@ -58,6 +58,16 @@ export interface VerifyOTPResponse {
   message: string;
   token?: string;
   user: AuthUser;
+  refreshEnabled?: boolean;
+  expiresIn?: string;
+}
+
+export interface RefreshResponse {
+  message: string;
+  token: string;
+  user: AuthUser;
+  refreshEnabled: true;
+  expiresIn: string;
 }
 
 export class DevAuthClient {
@@ -67,7 +77,9 @@ export class DevAuthClient {
   apiPrefix: string;
   tokenKey: string;
   userKey: string;
+  refreshEnabledKey: string;
   useCookies: boolean;
+  refreshPromise: Promise<RefreshResponse> | null;
 
   /**
    * Request a one-time login code sent to the specified email
@@ -79,6 +91,16 @@ export class DevAuthClient {
    * Automatically stores the received JWT token and user profile.
    */
   verifyOTP(email: string, otp: string | number): Promise<VerifyOTPResponse>;
+
+  /**
+   * Verify a Magic Link token and complete authentication.
+   */
+  verifyMagicLink(token: string, email?: string): Promise<VerifyOTPResponse>;
+
+  /**
+   * Rotate the httpOnly refresh cookie and store the newly issued access token.
+   */
+  refresh(): Promise<RefreshResponse>;
 
   /**
    * Wrapper around native fetch that automatically injects the Bearer token
