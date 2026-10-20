@@ -73,8 +73,8 @@ const app = express();
 // Initialize DevAuthKit with options
 devAuthKit(app, {
   corsOrigin: ["http://localhost:3000", "http://localhost:3001"],
-  jwtSecret: process.env.JWT_SECRET || "your-jwt-secret-key",
-  sessionSecret: process.env.SESSION_SECRET || "your-session-secret-key",
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET,
   devMode: process.env.NODE_ENV !== "production", // prints OTP to console if true
   debug: true
 });
@@ -173,6 +173,41 @@ devAuthKit(app, {
 ```
 
 Start the sign-in by navigating the browser to `GET /auth/github`. The flow validates timing-safe CSRF state, exchanges the authorization code using PKCE, retrieves the primary verified email from GitHub, resolves persistent user identity via `userAdapter`, and issues JWT/session credentials.
+
+### Custom OAuth providers and account linking
+
+Google and GitHub share the same PKCE-based OAuth flow. Add another OAuth 2.0 provider by supplying its endpoints and a mapper that only marks an email verified when the provider explicitly confirms it:
+
+```javascript
+devAuthKit(app, {
+  oauthProviders: {
+    acme: {
+      clientId: process.env.ACME_CLIENT_ID,
+      clientSecret: process.env.ACME_CLIENT_SECRET,
+      callbackURL: "https://api.example.com/auth/oauth/acme/callback",
+      authorizationURL: "https://identity.example.com/authorize",
+      tokenURL: "https://identity.example.com/token",
+      userInfoURL: "https://identity.example.com/userinfo",
+      scope: "openid email profile",
+      mapProfile: (profile) => ({
+        id: profile.sub,
+        email: profile.email,
+        emailVerified: profile.email_verified === true,
+        name: profile.name
+      })
+    }
+  }
+});
+```
+
+Navigate to `GET /auth/oauth/acme` to sign in. OAuth provider names may contain letters, digits, `_`, and `-`; `google` and `github` are reserved for the built-in providers. The provider endpoints must use HTTPS, and the callback must use HTTPS outside localhost.
+
+To link a provider to an already-authenticated account, send a same-origin `POST` to `/auth/oauth/acme/link` with the user's existing authenticated cookie or bearer token. The request's `Origin` must match a configured `corsOrigin`; use a top-level form POST for cookie-based browser login, or a JSON fetch with a bearer token and navigate to the returned `authorizationURL`. Link callbacks use the same configured callback URL. Account linking is enabled only when the configured `userAdapter` implements both optional identity methods:
+
+- `findUserByOAuthIdentity({ provider, providerId })` looks up logins by stable provider identity before falling back to verified email.
+- `linkOAuthIdentity({ userId, provider, providerId, email, ...profile })` must atomically enforce uniqueness on `(provider, providerId)` and reject identities already owned by another user.
+
+The built-in Prisma, Drizzle, and Mongoose adapters do not assume an identity-table schema; add these methods with your application's own schema before enabling linking. Never link accounts based only on a client-supplied email.
 
 ### Magic Link Authentication
 
@@ -305,6 +340,90 @@ devAuthKit(app, {
 
 The Redis adapter uses atomic `INCR` and expiring keys. Configure Express `trust proxy` correctly before mounting DevAuthKit when deployed behind a reverse proxy; the package uses Express's `req.ip` and does not trust forwarded headers on its own.
 
+### Cloudflare Workers with Hono, D1, and KV
+
+The `devauthkit/hono` entry point uses Web Crypto and Hono's Web Request/Response APIs; it does not load Express, `jsonwebtoken`, or Nodemailer. Install Hono and Drizzle in your Worker project:
+
+```bash
+npm install hono drizzle-orm
+```
+
+Create a SQLite-compatible Drizzle users table (for example, in `src/schema.ts`):
+
+```typescript
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const users = sqliteTable("users", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  email: text("email").notNull().unique(),
+  role: text("role")
+});
+```
+
+Bind a D1 database and KV namespace in your Wrangler configuration. Run your user-table migration and create the refresh-token, OAuth-state, and atomic-counter tables once as part of deployment, not from a request handler:
+
+```typescript
+import { CloudflareD1RefreshTokenStore } from "devauthkit/stores/cloudflare-d1";
+import { CloudflareD1OAuthStateStore } from "devauthkit/stores/cloudflare-d1-oauth-state";
+import { CloudflareD1CounterStore } from "devauthkit/stores/cloudflare-d1-counter";
+
+await new CloudflareD1RefreshTokenStore(env.DB).createTables();
+await new CloudflareD1OAuthStateStore(env.DB).createTables();
+await new CloudflareD1CounterStore(env.DB).createTables();
+```
+
+Mount the Hono router and construct its stores from Worker bindings:
+
+```typescript
+import { Hono } from "hono";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import { createAuthRouter } from "devauthkit/hono";
+import { drizzleAdapter } from "devauthkit/adapters/drizzle";
+import {
+  CloudflareKvMagicLinkStore,
+  CloudflareKvOtpStore,
+  CloudflareKvRateLimitStore
+} from "devauthkit/stores/cloudflare-kv";
+import { CloudflareD1RefreshTokenStore } from "devauthkit/stores/cloudflare-d1";
+import { CloudflareD1CounterStore } from "devauthkit/stores/cloudflare-d1-counter";
+import { CloudflareD1OAuthStateStore } from "devauthkit/stores/cloudflare-d1-oauth-state";
+import { users } from "./schema";
+
+let workerApp;
+
+export default {
+  fetch(request, env, executionCtx) {
+    if (!workerApp) {
+      const app = new Hono();
+      const counterStore = new CloudflareD1CounterStore(env.DB);
+      app.route("/", createAuthRouter({
+        jwtSecret: env.JWT_SECRET,
+        sessionSecret: env.JWT_SECRET,
+        apiPrefix: "/auth",
+        devMode: false,
+        emailProvider: "resend",
+        resendApiKey: env.RESEND_API_KEY,
+        fromEmail: "login@example.com",
+        otpStore: new CloudflareKvOtpStore(env.AUTH_KV, { counterStore }),
+        magicLinkStore: new CloudflareKvMagicLinkStore(env.AUTH_KV),
+        rateLimitStore: new CloudflareKvRateLimitStore(env.AUTH_KV, { counterStore }),
+        userAdapter: drizzleAdapter(drizzle(env.DB), { table: users, eq }),
+        refreshTokens: true,
+        refreshTokenStore: new CloudflareD1RefreshTokenStore(env.DB),
+        oauthStateStore: new CloudflareD1OAuthStateStore(env.DB)
+      }));
+      workerApp = app;
+    }
+    return workerApp.fetch(request, env, executionCtx);
+  }
+};
+```
+
+This mounts the same OTP, magic-link, Google/GitHub OAuth, refresh, logout, session-revocation, and profile endpoints under `/auth`. `createAuthRouter` requires an explicit JWT secret; production setup also requires persistent OTP storage, a Worker-compatible mailer (for example, Resend), and an atomic `oauthStateStore` whenever OAuth is configured. OAuth PKCE state is protected in a short-lived, signed, `httpOnly` cookie and consumed once through D1. KV stores require the D1-backed atomic `counterStore` for OTP attempts and rate limits; they do not silently fall back to racy KV read-modify-write counters. The Hono `requireAuth()` middleware is available for application routes.
+
+**Storage consistency matters:** Cloudflare KV is eventually consistent and does not provide atomic counters. `CloudflareKvOtpStore` and `CloudflareKvRateLimitStore` therefore require a strongly consistent `counterStore` such as `CloudflareD1CounterStore`; counter-store failures return an error instead of allowing authentication attempts or rate-limited requests. Refresh-token rotation uses D1 `batch()` transactions and conditional updates, rather than KV, to preserve the package's atomic rotation and replay-detection contract. Do not use the in-memory stores in a production Worker.
+
 ---
 
 ## 💻 Client SDK (`devauthkit/client`)
@@ -393,8 +512,8 @@ Pass configuration options to `devAuthKit(app, options)`:
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `corsOrigin` | `string \| string[]` | `"http://localhost:3001"` | Allowed CORS origin(s). |
-| `sessionSecret` | `string` | `process.env.SESSION_SECRET` | Secret key for `express-session`. |
-| `jwtSecret` | `string` | `process.env.JWT_SECRET` | Secret key for signing JWT tokens. |
+| `sessionSecret` | `string` | Random per-process development secret | Secret key for `express-session`; production requires an explicit secret of at least 32 bytes. |
+| `jwtSecret` | `string` | Random per-process development secret | Secret key for signing JWT tokens; production requires an explicit secret of at least 32 bytes. |
 | `jwtExpiresIn` | `string` | `"7d"` | JWT expiration timeframe (e.g. `"1h"`, `"7d"`). |
 | `otpExpiryMinutes`| `number` | `5` | Validity window of OTP codes in minutes. |
 | `maxAttempts` | `number` | `5` | Maximum failed verification attempts before invalidating OTP. |
@@ -495,7 +614,13 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 
 ## 🔖 Version Changelog
 
-- **Next (v1.5.0 — In Development / Roadmap)**:
+- **v1.5.0 (Latest)**:
+  - **Cloudflare Workers & Hono**: Added a Web Crypto-compatible Hono adapter and Worker-safe JWT, OTP, OAuth PKCE, and rate-limit hashing.
+  - **Cloudflare KV stores**: Added OTP, magic-link, and rate-limit adapters with expiration support and documented eventual-consistency limitations.
+  - **Cloudflare D1 refresh-token store**: Added atomic D1 rotation, replay detection, session revocation, and TypeScript D1 typing.
+  - **Extensible OAuth 2.0**: Unified Google/GitHub PKCE flows, added configurable custom providers, and added origin-checked account linking through user-adapter identity methods.
+  - Added Miniflare integration tests for KV, D1, and Hono while preserving Express authentication behavior.
+- **Next (Roadmap)**:
   - 🔑 **Passkeys & WebAuthn**: Native biometric passwordless authentication (TouchID, FaceID, Windows Hello, YubiKey).
   - 🛡️ **Two-Factor Authentication (2FA / TOTP)**: Authenticator app integration (Google Authenticator, 1Password) with QR codes and backup recovery keys.
   - 📱 **SMS OTP Authentication**: Pluggable SMS OTP delivery adapters (Twilio, AWS SNS, MessageBird).

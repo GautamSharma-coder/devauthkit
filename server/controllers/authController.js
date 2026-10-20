@@ -1,6 +1,11 @@
 // server/controllers/authController.js
-const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
+const {
+  constantTimeEqual,
+  randomString,
+  sha256Base64Url,
+  sha256Hex
+} = require("../utils/webCrypto");
+const { createAuthService } = require("../core/authService");
 const { sendOTP } = require("../utils/mailer");
 const generateOTP = require("../utils/generateOTP");
 const sessionStore = require("../sessionStore");
@@ -14,62 +19,17 @@ exports.clearMagicLinks = () => magicLinkStore.clear();
 
 // Simple email regex for basic validation
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const isProduction = () => typeof process !== "undefined" && process.env.NODE_ENV === "production";
 
-async function resolveUserPayload(email, identity = {}) {
-  const userAdapter = config.get("userAdapter");
-  if (!userAdapter) {
-    return {
-      email,
-      ...(identity.name ? { name: identity.name } : {}),
-      ...(identity.picture ? { picture: identity.picture } : {})
-    };
-  }
-
-  const dbUser = await userAdapter.findOrCreateUser({ email });
-  if (!dbUser || typeof dbUser !== "object" || dbUser.id === undefined || !dbUser.email) {
-    throw new TypeError("userAdapter.findOrCreateUser must return a user with id and email");
-  }
-
-  const mappedClaims = config.get("mapUserPayload")
-    ? config.get("mapUserPayload")(dbUser, identity)
-    : {};
-  if (!mappedClaims || typeof mappedClaims !== "object" || Array.isArray(mappedClaims)) {
-    throw new TypeError("mapUserPayload must return an object");
-  }
-
-  return {
-    ...mappedClaims,
-    id: dbUser.id,
-    email: dbUser.email,
-    ...(dbUser.role !== undefined ? { role: dbUser.role } : {})
-  };
-}
-
-function createToken(userPayload) {
-  return jwt.sign(
-    userPayload,
-    config.get("jwtSecret"),
-    { expiresIn: config.get("jwtExpiresIn") }
-  );
-}
-
-function refreshOptions() {
-  const value = config.get("refreshTokens");
-  if (!value) return null;
-  const options = typeof value === "object" ? value : {};
-  return {
-    accessTokenExpiresIn: options.accessTokenExpiresIn || "15m",
-    refreshTokenExpiresInDays: options.refreshTokenExpiresInDays ?? 30
-  };
+function getMagicLinkStore() {
+  return config.get("magicLinkStore") || magicLinkStore;
 }
 
 function getRefreshTokenStore() {
   return config.get("refreshTokenStore") || defaultRefreshTokenStore;
 }
 
-function hashRefreshToken(token) {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
+const authService = createAuthService({ config, getRefreshTokenStore });
 
 function getCookie(req, name) {
   if (req.cookies && req.cookies[name]) return req.cookies[name];
@@ -80,8 +40,8 @@ function getCookie(req, name) {
 function refreshCookieOptions(maxAge) {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+    secure: isProduction(),
+    sameSite: isProduction() ? "strict" : "lax",
     path: config.get("apiPrefix") || "/auth",
     maxAge
   };
@@ -97,59 +57,27 @@ function clearRefreshCookie(res) {
   res.clearCookie(cookieName, refreshCookieOptions(0));
 }
 
-async function issueTokens(userPayload, res) {
-  const refreshConfig = refreshOptions();
-  if (!refreshConfig) {
-    const token = createToken(userPayload);
-    setAuthCookie(res, token);
-    return { token, user: userPayload };
-  }
-
-  const familyId = crypto.randomUUID();
-  const refreshToken = crypto.randomBytes(48).toString("base64url");
-  const expiresAt = Date.now() + refreshConfig.refreshTokenExpiresInDays * 24 * 60 * 60 * 1000;
-  await getRefreshTokenStore().create(hashRefreshToken(refreshToken), {
-    familyId,
-    userId: String(userPayload.id ?? userPayload.email),
-    user: userPayload,
-    expiresAt
+function issueTokens(userPayload, res) {
+  return authService.issueTokens(userPayload, {
+    setAuthCookie: (token) => setAuthCookie(res, token),
+    setRefreshCookie: (token, maxAge) => setRefreshCookie(res, token, maxAge)
   });
-
-  const token = jwt.sign(
-    { ...userPayload, sid: familyId, jti: crypto.randomUUID() },
-    config.get("jwtSecret"),
-    { expiresIn: refreshConfig.accessTokenExpiresIn }
-  );
-  setAuthCookie(res, token);
-  setRefreshCookie(
-    res,
-    refreshToken,
-    refreshConfig.refreshTokenExpiresInDays * 24 * 60 * 60 * 1000
-  );
-  const tokens = {
-    token,
-    user: userPayload,
-    refreshEnabled: true,
-    expiresIn: refreshConfig.accessTokenExpiresIn
-  };
-  Object.defineProperty(tokens, "sessionId", { value: familyId });
-  return tokens;
 }
 
 function setAuthCookie(res, token) {
   if (!config.get("setHttpOnlyCookie") || typeof res.cookie !== "function") return;
 
-  const isProduction = process.env.NODE_ENV === "production";
+  const production = isProduction();
   const cookieName = config.get("cookieName") || "devauth_token";
-  const refreshConfig = refreshOptions();
+  const refreshConfig = authService.refreshOptions();
   const accessDuration = refreshConfig?.accessTokenExpiresIn.match(/^(\d+)(ms|s|m|h|d)$/);
   const accessMaxAge = accessDuration
     ? Number(accessDuration[1]) * ({ ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[accessDuration[2]])
     : 15 * 60 * 1000;
   res.cookie(cookieName, token, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? "strict" : "lax",
+    secure: production,
+    sameSite: production ? "strict" : "lax",
     maxAge: refreshConfig ? accessMaxAge : 7 * 24 * 60 * 60 * 1000
   });
 }
@@ -205,10 +133,10 @@ exports.requestOTP = async (req, res) => {
     let magicLinkUrl = null;
     const magicLinkEnabled = Boolean(config.get("magicLink") || req.body?.magicLink);
     if (magicLinkEnabled) {
-      const magicToken = crypto.randomBytes(32).toString("hex");
-      const tokenHash = crypto.createHash("sha256").update(magicToken).digest("hex");
+      const magicToken = randomString(32, "hex");
+      const tokenHash = await sha256Hex(magicToken);
       const expiryMinutes = config.get("magicLinkExpiryMinutes") || 15;
-      magicLinkStore.set(tokenHash, {
+      await getMagicLinkStore().set(tokenHash, {
         email: normalizedEmail,
         expiresAt: Date.now() + expiryMinutes * 60 * 1000
       });
@@ -280,7 +208,7 @@ exports.verifyOTP = async (req, res) => {
       });
     }
 
-    const userPayload = await resolveUserPayload(normalizedEmail);
+    const userPayload = await authService.resolveUserPayload(normalizedEmail);
 
     // OTP is valid - clear from store to prevent replay attacks
     await otpStore.delete(normalizedEmail);
@@ -306,7 +234,7 @@ exports.verifyOTP = async (req, res) => {
 };
 
 exports.refreshTokens = async (req, res) => {
-  const refreshConfig = refreshOptions();
+  const refreshConfig = authService.refreshOptions();
   if (!refreshConfig) {
     return res.status(404).json({ error: "Refresh tokens are not enabled" });
   }
@@ -316,11 +244,11 @@ exports.refreshTokens = async (req, res) => {
   if (!presentedToken) return res.status(401).json({ error: "Refresh token is required" });
 
   try {
-    const replacementToken = crypto.randomBytes(48).toString("base64url");
+    const replacementToken = randomString(48);
     const expiresAt = Date.now() + refreshConfig.refreshTokenExpiresInDays * 24 * 60 * 60 * 1000;
     const result = await getRefreshTokenStore().rotate(
-      hashRefreshToken(presentedToken),
-      hashRefreshToken(replacementToken),
+      await authService.hashRefreshToken(presentedToken),
+      await authService.hashRefreshToken(replacementToken),
       { expiresAt }
     );
 
@@ -337,11 +265,7 @@ exports.refreshTokens = async (req, res) => {
     }
 
     const userPayload = result.record.user;
-    const token = jwt.sign(
-      { ...userPayload, sid: result.record.familyId, jti: crypto.randomUUID() },
-      config.get("jwtSecret"),
-      { expiresIn: refreshConfig.accessTokenExpiresIn }
-    );
+    const token = await authService.createAccessToken(userPayload, result.record.familyId);
     setAuthCookie(res, token);
     setRefreshCookie(
       res,
@@ -393,129 +317,6 @@ exports.revokeAllSessions = async (req, res) => {
   }
 };
 
-exports.startGoogleOAuth = async (req, res) => {
-  const google = config.get("google");
-  if (!google) return res.status(404).json({ error: "Google sign-in is not configured" });
-  if (!req.session || typeof req.session.save !== "function") {
-    return res.status(500).json({ error: "Google sign-in requires Express session middleware" });
-  }
-
-  const state = crypto.randomBytes(32).toString("hex");
-  const codeVerifier = crypto.randomBytes(32).toString("base64url");
-  const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
-  req.session.googleOAuth = { state, codeVerifier, createdAt: Date.now() };
-
-  try {
-    await saveSession(req);
-    const authorizationURL = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    authorizationURL.search = new URLSearchParams({
-      client_id: google.clientId,
-      redirect_uri: google.callbackURL,
-      response_type: "code",
-      scope: "openid email profile",
-      state,
-      code_challenge: codeChallenge,
-      code_challenge_method: "S256"
-    }).toString();
-    return res.redirect(authorizationURL.toString());
-  } catch (error) {
-    return sendOAuthError(res, 500, "Failed to start Google sign-in", error);
-  }
-};
-
-exports.googleOAuthCallback = async (req, res) => {
-  const google = config.get("google");
-  if (!google) return res.status(404).json({ error: "Google sign-in is not configured" });
-
-  const pending = req.session?.googleOAuth;
-  const pendingState = typeof pending?.state === "string" ? Buffer.from(pending.state) : null;
-  const queryState = typeof req.query.state === "string" ? Buffer.from(req.query.state) : null;
-  if (
-    !pending ||
-    typeof pending.codeVerifier !== "string" ||
-    !Number.isFinite(pending.createdAt) ||
-    Date.now() - pending.createdAt > 10 * 60 * 1000 ||
-    !pendingState ||
-    !queryState ||
-    pendingState.length !== queryState.length ||
-    !crypto.timingSafeEqual(pendingState, queryState)
-  ) {
-    return res.status(400).json({ error: "Invalid or expired Google OAuth state" });
-  }
-  delete req.session.googleOAuth;
-
-  if (typeof req.query.code !== "string" || !req.query.code) {
-    return res.status(400).json({ error: "Google did not return an authorization code" });
-  }
-
-  try {
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      signal: AbortSignal.timeout(10_000),
-      body: new URLSearchParams({
-        code: req.query.code,
-        client_id: google.clientId,
-        client_secret: google.clientSecret,
-        redirect_uri: google.callbackURL,
-        grant_type: "authorization_code",
-        code_verifier: pending.codeVerifier
-      })
-    });
-    if (!tokenResponse.ok) {
-      throw new Error(`Google token exchange returned HTTP ${tokenResponse.status}`);
-    }
-    const tokenData = await tokenResponse.json();
-    if (!tokenData.access_token) {
-      throw new Error("Google token exchange did not return an access token");
-    }
-
-    const profileResponse = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-      signal: AbortSignal.timeout(10_000)
-    });
-    if (!profileResponse.ok) {
-      throw new Error(`Google user profile request returned HTTP ${profileResponse.status}`);
-    }
-    const profile = await profileResponse.json();
-    if (
-      typeof profile.sub !== "string" ||
-      !profile.sub ||
-      typeof profile.email !== "string" ||
-      !EMAIL_REGEX.test(profile.email.trim()) ||
-      profile.email_verified !== true
-    ) {
-      return res.status(401).json({ error: "Google did not provide a verified email address" });
-    }
-
-    const email = profile.email.trim().toLowerCase();
-    const userPayload = await resolveUserPayload(email, {
-      provider: "google",
-      providerId: profile.sub,
-      name: typeof profile.name === "string" ? profile.name : undefined,
-      picture: typeof profile.picture === "string" ? profile.picture : undefined
-    });
-    if (req.session && typeof req.session.regenerate === "function") {
-      await regenerateSession(req);
-    }
-
-    const tokens = await issueTokens(userPayload, res);
-    if (req.session) {
-      req.session.user = tokens.sessionId
-        ? { ...userPayload, sid: tokens.sessionId }
-        : userPayload;
-      await saveSession(req);
-    }
-
-    if (google.successRedirectURL && config.get("setHttpOnlyCookie")) {
-      return res.redirect(google.successRedirectURL);
-    }
-    return res.json({ message: "Logged in successfully", ...tokens });
-  } catch (error) {
-    return sendOAuthError(res, 502, "Google sign-in failed", error);
-  }
-};
-
 /**
  * Verify Magic Link token and authenticate user
  */
@@ -528,14 +329,14 @@ exports.verifyMagicLink = async (req, res) => {
       return res.status(400).json({ error: "Magic link token is required" });
     }
 
-    const tokenHash = crypto.createHash("sha256").update(String(token).trim()).digest("hex");
-    const entry = magicLinkStore.get(tokenHash);
+    const tokenHash = await sha256Hex(String(token).trim());
+    const entry = await getMagicLinkStore().get(tokenHash);
 
     if (!entry) {
       return res.status(401).json({ error: "Invalid or already used magic link" });
     }
 
-    magicLinkStore.delete(tokenHash);
+    await getMagicLinkStore().delete(tokenHash);
 
     if (Date.now() > entry.expiresAt) {
       return res.status(401).json({ error: "Magic link has expired. Please request a new one." });
@@ -545,7 +346,7 @@ exports.verifyMagicLink = async (req, res) => {
       return res.status(401).json({ error: "Magic link does not match the provided email" });
     }
 
-    const userPayload = await resolveUserPayload(entry.email);
+    const userPayload = await authService.resolveUserPayload(entry.email);
 
     if (req.session && typeof req.session.regenerate === "function") {
       await regenerateSession(req);
@@ -574,162 +375,285 @@ exports.verifyMagicLink = async (req, res) => {
   }
 };
 
-/**
- * Start GitHub OAuth flow with PKCE
- */
-exports.startGitHubOAuth = async (req, res) => {
-  const github = config.get("github");
-  if (!github) return res.status(404).json({ error: "GitHub sign-in is not configured" });
-  if (!req.session || typeof req.session.save !== "function") {
-    return res.status(500).json({ error: "GitHub sign-in requires Express session middleware" });
+function getOAuthProvider(provider) {
+  const providers = config.get("oauthProviders");
+  const custom = providers && Object.prototype.hasOwnProperty.call(providers, provider)
+    ? providers[provider]
+    : null;
+  if (custom) return { ...custom, provider };
+  if (provider === "google" && config.get("google")) {
+    return {
+      ...config.get("google"),
+      provider,
+      authorizationURL: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenURL: "https://oauth2.googleapis.com/token",
+      userInfoURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+      scope: "openid email profile"
+    };
   }
+  if (provider === "github" && config.get("github")) {
+    return {
+      ...config.get("github"),
+      provider,
+      authorizationURL: "https://github.com/login/oauth/authorize",
+      tokenURL: "https://github.com/login/oauth/access_token",
+      userInfoURL: "https://api.github.com/user",
+      scope: config.get("github").scope || "read:user user:email"
+    };
+  }
+  return null;
+}
 
-  const state = crypto.randomBytes(32).toString("hex");
-  const codeVerifier = crypto.randomBytes(32).toString("base64url");
-  const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
-  req.session.githubOAuth = { state, codeVerifier, createdAt: Date.now() };
+function createOAuthHandler(provider, link = false) {
+  return async (req, res) => {
+    const oauth = getOAuthProvider(provider);
+    if (!oauth) return res.status(404).json({ error: `${provider} sign-in is not configured` });
+    if (!req.session || typeof req.session.save !== "function") {
+      return res.status(500).json({ error: `${provider} sign-in requires session middleware` });
+    }
+    if (link) {
+      const allowedOrigins = config.get("corsOrigin");
+      const origins = Array.isArray(allowedOrigins) ? allowedOrigins : [allowedOrigins];
+      if (
+        req.method !== "POST" ||
+        typeof req.headers?.origin !== "string" ||
+        !origins.includes(req.headers.origin) ||
+        req.headers["sec-fetch-site"] === "cross-site"
+      ) {
+        return res.status(403).json({ error: "OAuth linking requires a same-origin POST request" });
+      }
+    }
+    if (link && (!req.user || req.user.id === undefined)) {
+      return res.status(401).json({ error: "An authenticated user is required to link an identity" });
+    }
+    if (link && typeof config.get("userAdapter")?.linkOAuthIdentity !== "function") {
+      return res.status(501).json({
+        error: "Account linking requires userAdapter.linkOAuthIdentity with provider identity uniqueness"
+      });
+    }
 
-  try {
-    await saveSession(req);
-    const authorizationURL = new URL("https://github.com/login/oauth/authorize");
-    authorizationURL.search = new URLSearchParams({
-      client_id: github.clientId,
-      redirect_uri: github.callbackURL,
-      scope: github.scope || "read:user user:email",
+    const state = randomString(32, "hex");
+    const codeVerifier = randomString(32);
+    const codeChallenge = await sha256Base64Url(codeVerifier);
+    req.session.oauthFlows ||= {};
+    req.session.oauthFlows[provider] = {
       state,
-      code_challenge: codeChallenge,
-      code_challenge_method: "S256"
-    }).toString();
-    return res.redirect(authorizationURL.toString());
-  } catch (error) {
-    return sendOAuthError(res, 500, "Failed to start GitHub sign-in", error);
+      codeVerifier,
+      createdAt: Date.now(),
+      ...(link ? { linkUserId: String(req.user.id) } : {})
+    };
+
+    try {
+      const oauthStateStore = config.get("oauthStateStore");
+      if (oauthStateStore) await oauthStateStore.put(state, Date.now() + 10 * 60 * 1000);
+      await saveSession(req);
+      const authorizationURL = new URL(oauth.authorizationURL);
+      authorizationURL.search = new URLSearchParams({
+        client_id: oauth.clientId,
+        redirect_uri: oauth.callbackURL,
+        response_type: "code",
+        scope: oauth.scope || "",
+        state,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256"
+      }).toString();
+      if (link && req.headers["content-type"]?.includes("application/json")) {
+        return res.json({ authorizationURL: authorizationURL.toString() });
+      }
+      return res.redirect(authorizationURL.toString());
+    } catch (error) {
+      return sendOAuthError(res, 500, `Failed to start ${provider} sign-in`, error);
+    }
+  };
+}
+
+async function fetchOAuthIdentity(provider, oauth, accessToken) {
+  const response = await fetch(oauth.userInfoURL, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: provider === "github" ? "application/vnd.github+json" : "application/json",
+      ...(provider === "github" ? { "User-Agent": "devauthkit" } : {})
+    },
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error(`${provider} profile request returned HTTP ${response.status}`);
+  const profile = await response.json();
+
+  if (typeof oauth.mapProfile === "function") {
+    const mapped = await oauth.mapProfile(profile, { accessToken, fetch });
+    if (!mapped || typeof mapped !== "object") {
+      throw new TypeError("OAuth mapProfile must return a profile object");
+    }
+    return mapped;
   }
-};
-
-/**
- * Handle GitHub OAuth callback
- */
-exports.githubOAuthCallback = async (req, res) => {
-  const github = config.get("github");
-  if (!github) return res.status(404).json({ error: "GitHub sign-in is not configured" });
-
-  const pending = req.session?.githubOAuth;
-  const pendingState = typeof pending?.state === "string" ? Buffer.from(pending.state) : null;
-  const queryState = typeof req.query.state === "string" ? Buffer.from(req.query.state) : null;
-  if (
-    !pending ||
-    typeof pending.codeVerifier !== "string" ||
-    !Number.isFinite(pending.createdAt) ||
-    Date.now() - pending.createdAt > 10 * 60 * 1000 ||
-    !pendingState ||
-    !queryState ||
-    pendingState.length !== queryState.length ||
-    !crypto.timingSafeEqual(pendingState, queryState)
-  ) {
-    return res.status(400).json({ error: "Invalid or expired GitHub OAuth state" });
+  if (provider === "google") {
+    return {
+      id: profile.sub,
+      email: profile.email,
+      emailVerified: profile.email_verified === true,
+      name: profile.name,
+      picture: profile.picture
+    };
   }
-  delete req.session.githubOAuth;
-
-  if (typeof req.query.code !== "string" || !req.query.code) {
-    return res.status(400).json({ error: "GitHub did not return an authorization code" });
-  }
-
-  try {
-    const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
-      method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      signal: AbortSignal.timeout(10_000),
-      body: new URLSearchParams({
-        code: req.query.code,
-        client_id: github.clientId,
-        client_secret: github.clientSecret,
-        redirect_uri: github.callbackURL,
-        code_verifier: pending.codeVerifier
-      })
-    });
-    if (!tokenResponse.ok) {
-      throw new Error(`GitHub token exchange returned HTTP ${tokenResponse.status}`);
-    }
-    const tokenData = await tokenResponse.json();
-    if (!tokenData.access_token) {
-      throw new Error(tokenData.error_description || "GitHub token exchange did not return an access token");
-    }
-
-    const profileResponse = await fetch("https://api.github.com/user", {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-        "User-Agent": "devauthkit",
-        Accept: "application/vnd.github+json"
-      },
-      signal: AbortSignal.timeout(10_000)
-    });
-    if (!profileResponse.ok) {
-      throw new Error(`GitHub user profile request returned HTTP ${profileResponse.status}`);
-    }
-    const profile = await profileResponse.json();
-
-    let verifiedEmail = null;
-    if (typeof profile.email === "string" && EMAIL_REGEX.test(profile.email.trim())) {
-      verifiedEmail = profile.email.trim().toLowerCase();
-    }
-
-    if (!verifiedEmail) {
-      const emailsResponse = await fetch("https://api.github.com/user/emails", {
+  if (provider === "github") {
+    let email = typeof profile.email === "string" ? profile.email : null;
+    if (!email) {
+      const emailResponse = await fetch("https://api.github.com/user/emails", {
         headers: {
-          Authorization: `Bearer ${tokenData.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           "User-Agent": "devauthkit",
           Accept: "application/vnd.github+json"
         },
         signal: AbortSignal.timeout(10_000)
       });
-      if (emailsResponse.ok) {
-        const emails = await emailsResponse.json();
+      if (emailResponse.ok) {
+        const emails = await emailResponse.json();
         if (Array.isArray(emails)) {
-          const primaryVerified = emails.find((e) => e.verified && e.primary);
-          const anyVerified = emails.find((e) => e.verified);
-          const chosen = primaryVerified || anyVerified;
-          if (chosen && typeof chosen.email === "string" && EMAIL_REGEX.test(chosen.email.trim())) {
-            verifiedEmail = chosen.email.trim().toLowerCase();
-          }
+          const chosen = emails.find((entry) => entry.verified && entry.primary) ||
+            emails.find((entry) => entry.verified);
+          if (chosen?.verified) email = chosen.email;
         }
       }
     }
-
-    if (!verifiedEmail) {
-      return res.status(401).json({ error: "GitHub did not provide a verified email address" });
-    }
-
-    const userPayload = await resolveUserPayload(verifiedEmail, {
-      provider: "github",
-      providerId: String(profile.id),
+    return {
+      id: profile.id === undefined ? undefined : String(profile.id),
+      email,
+      emailVerified: Boolean(email),
       name: typeof profile.name === "string" ? profile.name : profile.login,
-      picture: typeof profile.avatar_url === "string" ? profile.avatar_url : undefined,
+      picture: profile.avatar_url,
       username: profile.login
-    });
-
-    if (req.session && typeof req.session.regenerate === "function") {
-      await regenerateSession(req);
-    }
-
-    const tokens = await issueTokens(userPayload, res);
-    if (req.session) {
-      req.session.user = tokens.sessionId
-        ? { ...userPayload, sid: tokens.sessionId }
-        : userPayload;
-      await saveSession(req);
-    }
-
-    if (github.successRedirectURL && config.get("setHttpOnlyCookie")) {
-      return res.redirect(github.successRedirectURL);
-    }
-    return res.json({ message: "Logged in successfully", ...tokens });
-  } catch (error) {
-    return sendOAuthError(res, 502, "GitHub sign-in failed", error);
+    };
   }
-};
+  throw new TypeError("OAuth provider must define mapProfile");
+}
+
+function createOAuthCallback(provider) {
+  return async (req, res) => {
+    const oauth = getOAuthProvider(provider);
+    if (!oauth) return res.status(404).json({ error: `${provider} sign-in is not configured` });
+    const pending = req.session?.oauthFlows?.[provider] ||
+      (provider === "google" ? req.session?.googleOAuth : req.session?.githubOAuth);
+    const pendingState = typeof pending?.state === "string" ? pending.state : null;
+    const queryState = typeof req.query.state === "string" ? req.query.state : null;
+    if (
+      !pending ||
+      typeof pending.codeVerifier !== "string" ||
+      !Number.isFinite(pending.createdAt) ||
+      Date.now() - pending.createdAt > 10 * 60 * 1000 ||
+      !pendingState ||
+      !queryState ||
+      !constantTimeEqual(pendingState, queryState)
+    ) {
+      return res.status(400).json({ error: `Invalid or expired ${provider} OAuth state` });
+    }
+    const oauthStateStore = config.get("oauthStateStore");
+    if (oauthStateStore) {
+      let consumed;
+      try {
+        consumed = await oauthStateStore.consume(pending.state);
+      } catch (error) {
+        return sendOAuthError(res, 503, `${provider} OAuth state store is unavailable`, error);
+      }
+      if (!consumed) {
+        return res.status(400).json({ error: `Invalid, expired, or already-used ${provider} OAuth state` });
+      }
+    }
+    delete req.session.oauthFlows?.[provider];
+    if (provider === "google") delete req.session.googleOAuth;
+    if (provider === "github") delete req.session.githubOAuth;
+    try {
+      await saveSession(req);
+    } catch (error) {
+      return sendOAuthError(res, 500, `Failed to consume ${provider} OAuth state`, error);
+    }
+    if (typeof req.query.code !== "string" || !req.query.code) {
+      return res.status(400).json({ error: `${provider} did not return an authorization code` });
+    }
+
+    try {
+      const tokenResponse = await fetch(oauth.tokenURL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          ...(provider === "github" ? { Accept: "application/json" } : {})
+        },
+        signal: AbortSignal.timeout(10_000),
+        body: new URLSearchParams({
+          code: req.query.code,
+          client_id: oauth.clientId,
+          client_secret: oauth.clientSecret,
+          redirect_uri: oauth.callbackURL,
+          grant_type: "authorization_code",
+          code_verifier: pending.codeVerifier
+        })
+      });
+      if (!tokenResponse.ok) throw new Error(`${provider} token exchange returned HTTP ${tokenResponse.status}`);
+      const tokenData = await tokenResponse.json();
+      if (typeof tokenData.access_token !== "string" || !tokenData.access_token) {
+        throw new Error(tokenData.error_description || `${provider} token exchange did not return an access token`);
+      }
+
+      const profile = await fetchOAuthIdentity(provider, oauth, tokenData.access_token);
+      if (
+        (typeof profile.id !== "string" && typeof profile.id !== "number") ||
+        !String(profile.id) ||
+        typeof profile.email !== "string" ||
+        !EMAIL_REGEX.test(profile.email.trim()) ||
+        profile.emailVerified !== true
+      ) {
+        return res.status(401).json({
+          error: `${provider} did not provide a verified email and stable identity`
+        });
+      }
+
+      const email = profile.email.trim().toLowerCase();
+      const identity = {
+        provider,
+        providerId: String(profile.id),
+        name: typeof profile.name === "string" ? profile.name : undefined,
+        picture: typeof profile.picture === "string" ? profile.picture : undefined,
+        username: typeof profile.username === "string" ? profile.username : undefined
+      };
+      if (pending.linkUserId !== undefined) {
+        const adapter = config.get("userAdapter");
+        if (typeof adapter?.linkOAuthIdentity !== "function") {
+          return res.status(501).json({ error: "Account linking is not supported by the configured userAdapter" });
+        }
+        await adapter.linkOAuthIdentity({
+          userId: pending.linkUserId,
+          ...identity,
+          email
+        });
+        await saveSession(req);
+        return res.json({ message: "OAuth identity linked successfully", provider });
+      }
+
+      const userPayload = await authService.resolveUserPayload(email, identity);
+      if (req.session && typeof req.session.regenerate === "function") await regenerateSession(req);
+      const tokens = await issueTokens(userPayload, res);
+      if (req.session) {
+        req.session.user = tokens.sessionId
+          ? { ...userPayload, sid: tokens.sessionId }
+          : userPayload;
+        await saveSession(req);
+      }
+      if (oauth.successRedirectURL && config.get("setHttpOnlyCookie")) {
+        return res.redirect(oauth.successRedirectURL);
+      }
+      return res.json({ message: "Logged in successfully", ...tokens });
+    } catch (error) {
+      return sendOAuthError(res, 502, `${provider} sign-in failed`, error);
+    }
+  };
+}
+
+exports.startOAuth = (req, res) => createOAuthHandler(req.params.provider)(req, res);
+exports.oauthCallback = (req, res) => createOAuthCallback(req.params.provider)(req, res);
+exports.linkOAuth = (req, res) => createOAuthHandler(req.params.provider, true)(req, res);
+exports.startGoogleOAuth = (req, res) => createOAuthHandler("google")(req, res);
+exports.googleOAuthCallback = (req, res) => createOAuthCallback("google")(req, res);
+exports.startGitHubOAuth = (req, res) => createOAuthHandler("github")(req, res);
+exports.githubOAuthCallback = (req, res) => createOAuthCallback("github")(req, res);
 
 /**
  * Get current authenticated user profile
@@ -754,7 +678,7 @@ exports.logout = async (req, res) => {
   const refreshToken = getCookie(req, `${cookieName}_refresh`);
   if (refreshToken) {
     try {
-      await getRefreshTokenStore().revoke(hashRefreshToken(refreshToken));
+      await getRefreshTokenStore().revoke(await authService.hashRefreshToken(refreshToken));
     } catch (error) {
       console.error("[DevAuthKit] Failed to revoke refresh token on logout:", error);
       return res.status(500).json({ error: "Failed to log out" });

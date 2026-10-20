@@ -1,9 +1,12 @@
 // server/config.js
 
+const environment = typeof process === "undefined" ? {} : process.env;
+const { randomString } = require("./utils/webCrypto");
+
 const defaultConfig = {
   corsOrigin: "http://localhost:3001",
-  sessionSecret: process.env.SESSION_SECRET || "devAuthSecret",
-  jwtSecret: process.env.JWT_SECRET || process.env.SESSION_SECRET || "devAuthJwtSecretKey_change_in_production",
+  sessionSecret: environment.SESSION_SECRET || randomString(32),
+  jwtSecret: environment.JWT_SECRET || environment.SESSION_SECRET,
   jwtExpiresIn: "7d",
   otpExpiryMinutes: 5,
   maxAttempts: 5,
@@ -18,7 +21,10 @@ const defaultConfig = {
   mapUserPayload: undefined,
   google: undefined,
   github: undefined,
+  oauthProviders: undefined,
+  oauthStateStore: undefined,
   magicLink: false,
+  magicLinkStore: undefined,
   magicLinkExpiryMinutes: 15,
   magicLinkBaseURL: undefined,
   magicLinkSuccessURL: undefined,
@@ -32,15 +38,18 @@ const defaultConfig = {
     revokeSession: { windowMs: 15 * 60_000, max: 30, perIp: true },
     revokeAllSessions: { windowMs: 15 * 60_000, max: 10, perIp: true },
     logout: { windowMs: 15 * 60_000, max: 30, perIp: true },
+    oauthStart: { windowMs: 15 * 60_000, max: 20, perIp: true },
+    oauthCallback: { windowMs: 15 * 60_000, max: 30, perIp: true },
+    oauthLink: { windowMs: 15 * 60_000, max: 20, perIp: true },
     googleStart: { windowMs: 15 * 60_000, max: 20, perIp: true },
     googleCallback: { windowMs: 15 * 60_000, max: 30, perIp: true },
     githubStart: { windowMs: 15 * 60_000, max: 20, perIp: true },
     githubCallback: { windowMs: 15 * 60_000, max: 30, perIp: true }
   },
   rateLimitStore: undefined,
-  emailProvider: process.env.RESEND_API_KEY ? "resend" : "smtp",
-  resendApiKey: process.env.RESEND_API_KEY || "",
-  fromEmail: process.env.FROM_EMAIL || process.env.EMAIL_USER || "onboarding@resend.dev"
+  emailProvider: environment.RESEND_API_KEY ? "resend" : "smtp",
+  resendApiKey: environment.RESEND_API_KEY || "",
+  fromEmail: environment.FROM_EMAIL || environment.EMAIL_USER || "onboarding@resend.dev"
 };
 
 let currentConfig = { ...defaultConfig };
@@ -67,13 +76,13 @@ function mergeRateLimitRules(rateLimit) {
 
 module.exports = {
   set(options = {}) {
-    const hasResend = Boolean(options.resendApiKey || process.env.RESEND_API_KEY);
-    const hasSmtp = Boolean(process.env.EMAIL_USER && process.env.EMAIL_USER !== "your-email@example.com" && process.env.EMAIL_PASS);
+    const hasResend = Boolean(options.resendApiKey || environment.RESEND_API_KEY);
+    const hasSmtp = Boolean(environment.EMAIL_USER && environment.EMAIL_USER !== "your-email@example.com" && environment.EMAIL_PASS);
     const hasCustomMailer = typeof options.mailer === "function";
 
     const isDevModeAuto = Boolean(
       options.devMode ?? 
-      (process.env.DEV_MODE === "true" ||
+      (environment.DEV_MODE === "true" ||
        (!hasResend && !hasSmtp && !hasCustomMailer))
     );
 
@@ -84,6 +93,8 @@ module.exports = {
       mapUserPayload: options.mapUserPayload,
       google: options.google,
       github: options.github,
+      oauthProviders: options.oauthProviders,
+      oauthStateStore: options.oauthStateStore,
       magicLink: options.magicLink ?? defaultConfig.magicLink,
       magicLinkExpiryMinutes: options.magicLinkExpiryMinutes || defaultConfig.magicLinkExpiryMinutes,
       magicLinkBaseURL: options.magicLinkBaseURL || defaultConfig.magicLinkBaseURL,
@@ -92,14 +103,14 @@ module.exports = {
       refreshTokenStore: options.refreshTokenStore,
       rateLimit: mergeRateLimitRules(options.rateLimit),
       rateLimitStore: options.rateLimitStore,
-      sessionSecret: options.sessionSecret || process.env.SESSION_SECRET || defaultConfig.sessionSecret,
-      jwtSecret: options.jwtSecret || process.env.JWT_SECRET || options.sessionSecret || defaultConfig.jwtSecret,
+      sessionSecret: options.sessionSecret || environment.SESSION_SECRET || defaultConfig.sessionSecret,
+      jwtSecret: options.jwtSecret || environment.JWT_SECRET || options.sessionSecret || environment.SESSION_SECRET || defaultConfig.jwtSecret,
       devMode: options.devMode !== undefined ? Boolean(options.devMode) : isDevModeAuto,
       setHttpOnlyCookie: options.setHttpOnlyCookie !== undefined ? Boolean(options.setHttpOnlyCookie) : defaultConfig.setHttpOnlyCookie,
       cookieName: options.cookieName || defaultConfig.cookieName,
       emailProvider: options.emailProvider || (hasResend ? "resend" : defaultConfig.emailProvider),
-      resendApiKey: options.resendApiKey || process.env.RESEND_API_KEY || "",
-      fromEmail: options.fromEmail || process.env.FROM_EMAIL || defaultConfig.fromEmail
+      resendApiKey: options.resendApiKey || environment.RESEND_API_KEY || "",
+      fromEmail: options.fromEmail || environment.FROM_EMAIL || defaultConfig.fromEmail
     };
     return currentConfig;
   },

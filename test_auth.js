@@ -38,6 +38,40 @@ async function runTests() {
   }
 
   try {
+    console.log("\n📨 Testing unavailable mail delivery does not log credentials...");
+    const originalMailerConfig = devAuthKit.config.get();
+    devAuthKit.config.set({
+      ...originalMailerConfig,
+      devMode: false,
+      emailProvider: "smtp",
+      resendApiKey: "",
+      mailer: undefined,
+      smtpMailer: undefined,
+      smtpMailerAvailable: false
+    });
+    const originalConsoleLog = console.log;
+    const mailerLogs = [];
+    let unavailableDeliveryRejected = false;
+    try {
+      console.log = (...args) => mailerLogs.push(args.join(" "));
+      await require("./server/utils/mailer").sendOTP({
+        email: "private@example.com",
+        otp: "918273",
+        magicLinkUrl: "https://example.com/auth/verify-magic?token=secret-token"
+      });
+    } catch (error) {
+      unavailableDeliveryRejected = /OTP delivery is unavailable/.test(error.message);
+    } finally {
+      console.log = originalConsoleLog;
+      devAuthKit.config.set(originalMailerConfig);
+    }
+    assert(
+      unavailableDeliveryRejected &&
+        !mailerLogs.join("\n").includes("918273") &&
+        !mailerLogs.join("\n").includes("secret-token"),
+      "Unavailable production mail delivery throws without logging OTP or magic-link credentials"
+    );
+
     const testEmail = "testuser@example.com";
 
     // Test 1: Request OTP (/auth/login)
@@ -350,6 +384,31 @@ async function runTests() {
       invalidRateLimitRejected = error instanceof TypeError;
     }
     assert(invalidRateLimitRejected, "Invalid rate-limit windows are rejected during initialization");
+
+    let publicJwtSecretRejected = false;
+    try {
+      devAuthKit(express(), {
+        jwtSecret: "devAuthJwtSecretKey_change_in_production",
+        sessionSecret: "secure-test-session-secret"
+      });
+    } catch (error) {
+      publicJwtSecretRejected = error instanceof TypeError;
+    }
+    assert(publicJwtSecretRejected, "Express initialization rejects the public development JWT secret");
+
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    let missingProductionSecretsRejected = false;
+    try {
+      devAuthKit(express(), { devMode: false });
+    } catch (error) {
+      missingProductionSecretsRejected = error instanceof TypeError &&
+        /Production requires explicit JWT and session secrets/.test(error.message);
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+    }
+    assert(missingProductionSecretsRejected, "Production initialization requires explicit high-entropy JWT and session secrets");
 
     const prismaCalls = [];
     const prismaUserAdapter = devAuthKit.prismaAdapter({
@@ -784,15 +843,15 @@ async function runTests() {
       assert(unauthRbac.status === 401, "requireRole returns 401 Unauthorized for unauthenticated requests");
 
       // 2. User with role 'user' -> 403 Forbidden
-      const jwt = require("jsonwebtoken");
-      const userToken = jwt.sign({ email: "user@test.com", role: "user" }, "rbac-test-jwt-secret");
+      const { signJwt } = require("./server/utils/webCrypto");
+      const userToken = await signJwt({ email: "user@test.com", role: "user" }, "rbac-test-jwt-secret");
       const forbiddenRes = await fetch(`${rbacUrl}/api/admin-only`, {
         headers: { Authorization: `Bearer ${userToken}` }
       });
       assert(forbiddenRes.status === 403, "requireRole returns 403 Forbidden when user does not have required role");
 
       // 3. User with role 'admin' -> 200 OK
-      const adminToken = jwt.sign({ email: "admin@test.com", role: "admin" }, "rbac-test-jwt-secret");
+      const adminToken = await signJwt({ email: "admin@test.com", role: "admin" }, "rbac-test-jwt-secret");
       const adminRes = await fetch(`${rbacUrl}/api/admin-only`, {
         headers: { Authorization: `Bearer ${adminToken}` }
       });
@@ -800,7 +859,7 @@ async function runTests() {
       assert(adminRes.ok && adminData.secret === "admin-data", "requireRole allows access when user role matches");
 
       // 4. User with role 'moderator' accessing staff route with array allowed roles -> 200 OK
-      const modToken = jwt.sign({ email: "mod@test.com", role: "moderator" }, "rbac-test-jwt-secret");
+      const modToken = await signJwt({ email: "mod@test.com", role: "moderator" }, "rbac-test-jwt-secret");
       const staffRes = await fetch(`${rbacUrl}/api/staff-only`, {
         headers: { Authorization: `Bearer ${modToken}` }
       });
@@ -1018,6 +1077,142 @@ async function runTests() {
     } finally {
       global.fetch = ghOriginalFetch;
       githubServer.close();
+    }
+
+    console.log("\n🔐 Testing custom OAuth providers and account linking...");
+    const identities = new Map();
+    const linkedIdentities = [];
+    const oauthApp = express();
+    devAuthKit(oauthApp, {
+      jwtSecret: "custom-oauth-test-secret",
+      sessionSecret: "custom-oauth-session-secret",
+      oauthProviders: {
+        acme: {
+          clientId: "test-acme-client-id",
+          clientSecret: "test-acme-client-secret",
+          callbackURL: "http://localhost:3000/auth/oauth/acme/callback",
+          authorizationURL: "https://identity.example.test/authorize",
+          tokenURL: "https://identity.example.test/token",
+          userInfoURL: "https://identity.example.test/userinfo",
+          scope: "openid email profile",
+          mapProfile: (profile) => ({
+            id: profile.sub,
+            email: profile.email,
+            emailVerified: profile.email_verified,
+            name: profile.name
+          })
+        }
+      },
+      userAdapter: {
+        async findOrCreateUser({ email }) {
+          return { id: "acme-user-1", email };
+        },
+        async findUserByOAuthIdentity({ provider, providerId }) {
+          return identities.get(`${provider}:${providerId}`) || null;
+        },
+        async linkOAuthIdentity(identity) {
+          const key = `${identity.provider}:${identity.providerId}`;
+          const previous = identities.get(key);
+          if (previous && String(previous.id) !== identity.userId) {
+            throw new Error("OAuth identity already belongs to another user");
+          }
+          identities.set(key, { id: identity.userId, email: identity.email });
+          linkedIdentities.push(identity);
+        }
+      }
+    });
+    const oauthServer = oauthApp.listen(0);
+    const oauthOriginalFetch = global.fetch;
+    try {
+      const oauthUrl = `http://localhost:${oauthServer.address().port}`;
+      const unauthenticatedLink = await oauthOriginalFetch(`${oauthUrl}/auth/oauth/acme/link`, {
+        method: "POST",
+        headers: {
+          Origin: "http://localhost:3001",
+          "Content-Type": "application/json"
+        },
+        body: "{}"
+      });
+      assert(unauthenticatedLink.status === 401, "OAuth account linking requires authentication");
+
+      const linkJwt = await require("./server/utils/webCrypto").signJwt(
+        { id: "existing-user-7", email: "existing@example.com" },
+        "custom-oauth-test-secret",
+        "1h"
+      );
+      const crossOriginLink = await oauthOriginalFetch(`${oauthUrl}/auth/oauth/acme/link`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${linkJwt}`,
+          Origin: "https://attacker.example",
+          "Content-Type": "application/json"
+        },
+        body: "{}"
+      });
+      assert(crossOriginLink.status === 403, "OAuth account linking rejects cross-origin initiation");
+
+      const startLink = await oauthOriginalFetch(`${oauthUrl}/auth/oauth/acme/link`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${linkJwt}`,
+          Origin: "http://localhost:3001",
+          "Content-Type": "application/json"
+        },
+        body: "{}"
+      });
+      const startLinkData = await startLink.json();
+      const linkAuthorizationURL = new URL(startLinkData.authorizationURL);
+      const linkSessionCookie = (startLink.headers.get("set-cookie") || "").split(";")[0];
+      assert(
+        startLink.ok &&
+          linkAuthorizationURL.hostname === "identity.example.test" &&
+          linkAuthorizationURL.searchParams.get("code_challenge_method") === "S256" &&
+          Boolean(linkAuthorizationURL.searchParams.get("code_challenge")),
+        "Custom OAuth providers use authorization-code PKCE"
+      );
+
+      global.fetch = async (input, init = {}) => {
+        const url = input.toString();
+        if (url === "https://identity.example.test/token") {
+          assert(
+            new URLSearchParams(init.body).has("code_verifier"),
+            "Custom OAuth token exchange includes its PKCE verifier"
+          );
+          return new Response(JSON.stringify({ access_token: "mock-acme-access-token" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (url === "https://identity.example.test/userinfo") {
+          return new Response(JSON.stringify({
+            sub: "acme-subject-9",
+            email: "Existing@Example.com",
+            email_verified: true,
+            name: "Existing User"
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        return oauthOriginalFetch(input, init);
+      };
+
+      const linkCallback = await oauthOriginalFetch(
+        `${oauthUrl}/auth/oauth/acme/callback?code=mock-acme-code&state=${encodeURIComponent(linkAuthorizationURL.searchParams.get("state"))}`,
+        { headers: { Cookie: linkSessionCookie } }
+      );
+      const linkData = await linkCallback.json();
+      assert(
+        linkCallback.ok &&
+          linkData.provider === "acme" &&
+          linkedIdentities.length === 1 &&
+          linkedIdentities[0].userId === "existing-user-7" &&
+          linkedIdentities[0].email === "existing@example.com",
+        "OAuth callback links verified provider identity to the authenticated account"
+      );
+    } finally {
+      global.fetch = oauthOriginalFetch;
+      oauthServer.close();
     }
 
     console.log("\n⚛️ Testing React Hooks export...");

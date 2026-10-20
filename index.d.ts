@@ -5,7 +5,19 @@ export interface OtpStore {
   get(email: string): { otp: string; attempts: number; createdAt: number } | null | Promise<{ otp: string; attempts: number; createdAt: number } | null>;
   set(email: string, data: { otp: string; attempts: number; createdAt: number }): void | Promise<void>;
   delete(email: string): void | Promise<void>;
+  /** Increment attempts atomically; implementations must not use read-modify-write counters. */
   recordAttempt(email: string): number | Promise<number>;
+}
+
+export interface MagicLinkRecord {
+  email: string;
+  expiresAt: number;
+}
+
+export interface MagicLinkStore {
+  get(tokenHash: string): MagicLinkRecord | null | Promise<MagicLinkRecord | null>;
+  set(tokenHash: string, record: MagicLinkRecord): void | Promise<void>;
+  delete(tokenHash: string): void | Promise<void>;
 }
 
 export interface RedisClientLike {
@@ -16,6 +28,7 @@ export interface RedisClientLike {
 }
 
 export interface RateLimitStore {
+  /** Atomically increment a counter for the supplied window. */
   increment(key: string, windowMs: number): number | Promise<number>;
 }
 
@@ -46,6 +59,9 @@ export type RateLimitRoute =
   | "revokeSession"
   | "revokeAllSessions"
   | "logout"
+  | "oauthStart"
+  | "oauthCallback"
+  | "oauthLink"
   | "googleStart"
   | "googleCallback"
   | "githubStart"
@@ -62,10 +78,24 @@ export interface AdapterUser {
 
 export interface UserAdapter {
   findOrCreateUser(data: { email: string }): AdapterUser | Promise<AdapterUser>;
+  findUserByOAuthIdentity?(identity: { provider: string; providerId: string }): AdapterUser | null | Promise<AdapterUser | null>;
+  /**
+   * Persist an identity for this user. Implementations must enforce uniqueness for
+   * (provider, providerId) atomically and reject identities owned by another user.
+   */
+  linkOAuthIdentity?(identity: {
+    userId: string;
+    provider: string;
+    providerId: string;
+    email: string;
+    name?: string;
+    picture?: string;
+    username?: string;
+  }): void | Promise<void>;
 }
 
 export interface AuthIdentityContext {
-  provider?: "google";
+  provider?: string;
   providerId?: string;
   name?: string;
   picture?: string;
@@ -142,6 +172,44 @@ export interface GitHubOAuthOptions {
   successRedirectURL?: string;
 }
 
+export interface OAuthProviderOptions {
+  clientId: string;
+  clientSecret: string;
+  callbackURL: string;
+  authorizationURL: string;
+  tokenURL: string;
+  userInfoURL: string;
+  scope?: string;
+  successRedirectURL?: string;
+  /**
+   * Map the user-info JSON to { id, email, emailVerified, name?, picture?, username? }.
+   * The callback must set emailVerified only when the provider verified the address.
+   */
+  mapProfile(profile: Record<string, unknown>, context: {
+    accessToken: string;
+  }): {
+    id: string | number;
+    email: string;
+    emailVerified: boolean;
+    name?: string;
+    picture?: string;
+    username?: string;
+  } | Promise<{
+    id: string | number;
+    email: string;
+    emailVerified: boolean;
+    name?: string;
+    picture?: string;
+    username?: string;
+  }>;
+}
+
+export interface OAuthStateStore {
+  put(state: string, expiresAt: number): void | Promise<void>;
+  /** Atomically return true once for an existing, unexpired state and consume it. */
+  consume(state: string): boolean | Promise<boolean>;
+}
+
 export function prismaAdapter<T extends object>(
   prisma: T,
   options?: {
@@ -192,13 +260,16 @@ export interface DevAuthConfigOptions {
 
   /**
    * Secret key used for signing session cookies
-   * @default process.env.SESSION_SECRET || "devAuthSecret"
+   * Defaults to a random process-local secret for development. Production requires
+   * an explicit secret of at least 32 bytes.
    */
   sessionSecret?: string;
 
   /**
    * Secret key used for signing JWT Bearer tokens
-   * @default process.env.JWT_SECRET || sessionSecret
+   * Uses JWT_SECRET or sessionSecret when configured; otherwise a random process-local
+   * secret is generated for development. Production requires explicit secrets of at
+   * least 32 bytes.
    */
   jwtSecret?: string;
 
@@ -310,10 +381,27 @@ export interface DevAuthConfigOptions {
   github?: GitHubOAuthOptions;
 
   /**
+   * Add OAuth 2.0 providers using authorization-code + PKCE and a profile mapper.
+   * Routes are /auth/oauth/:provider and /auth/oauth/:provider/callback.
+   */
+  oauthProviders?: Record<string, OAuthProviderOptions>;
+
+  /**
+   * Optional atomic one-time OAuth state storage. Required by the Hono adapter;
+   * Express sessions already provide server-side state persistence.
+   */
+  oauthStateStore?: OAuthStateStore;
+
+  /**
    * Enable Magic Link click-to-login authentication alongside 6-digit OTPs.
    * @default false
    */
   magicLink?: boolean;
+
+  /**
+   * Optional persistent magic-link storage. Defaults to process memory.
+   */
+  magicLinkStore?: MagicLinkStore;
 
   /**
    * Expiration time in minutes for magic link tokens.
@@ -384,6 +472,8 @@ export function requireRole(
   options?: RequireRoleOptions
 ): AuthMiddleware;
 
+export const requireAuth: AuthMiddleware;
+
 export interface DevAuthKitInstance {
   (app: Application, options?: DevAuthConfigOptions): Application;
   requireAuth: AuthMiddleware;
@@ -406,7 +496,3 @@ declare const devAuthKit: DevAuthKitInstance;
 
 export default devAuthKit;
 export { devAuthKit };
-export { prismaAdapter };
-export { drizzleAdapter };
-export { mongooseAdapter };
-export { requireRole };

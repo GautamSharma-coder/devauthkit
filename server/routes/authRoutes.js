@@ -12,6 +12,9 @@ const {
   googleOAuthCallback,
   startGitHubOAuth,
   githubOAuthCallback,
+  startOAuth,
+  oauthCallback,
+  linkOAuth,
   getMe,
   logout
 } = require("../controllers/authController");
@@ -41,6 +44,10 @@ router.get("/google/callback", rateLimit("googleCallback"), googleOAuthCallback)
 // Optional GitHub OAuth flow (enabled when github credentials are configured)
 router.get("/github", rateLimit("githubStart"), startGitHubOAuth);
 router.get("/github/callback", rateLimit("githubCallback"), githubOAuthCallback);
+
+router.get("/oauth/:provider", rateLimit("oauthStart"), startOAuth);
+router.get("/oauth/:provider/callback", rateLimit("oauthCallback"), oauthCallback);
+router.post("/oauth/:provider/link", rateLimit("oauthLink"), requireAuth, linkOAuth);
 
 // Profile / Current user
 router.get("/me", requireAuth, getMe);

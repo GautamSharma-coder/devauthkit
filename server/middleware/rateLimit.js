@@ -1,12 +1,8 @@
-const crypto = require("crypto");
+const { sha256Hex } = require("../utils/webCrypto");
 const config = require("../config");
 const MemoryRateLimitStore = require("../stores/memoryRateLimitStore");
 
 const defaultStore = new MemoryRateLimitStore();
-
-function identityHash(value) {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
 
 function getClientIp(req) {
   return req.ip || req.socket?.remoteAddress || "unknown";
@@ -53,8 +49,8 @@ function makeRateLimit(name) {
     const store = config.get("rateLimitStore") || defaultStore;
 
     try {
-      const counts = await Promise.all(identities.map(([type, identity]) => {
-        const key = `${name}:${type}:${identityHash(identity)}:${bucket}`;
+      const counts = await Promise.all(identities.map(async ([type, identity]) => {
+        const key = `${name}:${type}:${await sha256Hex(identity)}:${bucket}`;
         return store.increment(key, rule.windowMs);
       }));
       if (counts.some((count) => !Number.isSafeInteger(count) || count < 1)) {

@@ -28,7 +28,7 @@ export interface AuthProviderProps {
   children: React.ReactNode;
 }
 
-export function AuthProvider(props: AuthProviderProps): React.JSX.Element;
+export function AuthProvider(props: AuthProviderProps): React.ReactElement;
 
 export function useAuth(): AuthContextValue;
 

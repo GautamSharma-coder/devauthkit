@@ -1,6 +1,6 @@
 {
   "name": "devauthkit",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "A plug-and-play authentication service for developers",
   "main": "index.js",
   "types": "./index.d.ts",
@@ -25,15 +25,39 @@
       "types": "./server/adapters/mongoose.d.ts",
       "default": "./server/adapters/mongoose.js"
     },
+    "./hono": {
+      "types": "./server/hono/index.d.ts",
+      "default": "./server/hono/index.js"
+    },
+    "./stores/cloudflare-kv": {
+      "types": "./server/stores/cloudflareKvStore.d.ts",
+      "default": "./server/stores/cloudflareKvStore.js"
+    },
+    "./stores/cloudflare-d1": {
+      "types": "./server/stores/cloudflareD1RefreshTokenStore.d.ts",
+      "default": "./server/stores/cloudflareD1RefreshTokenStore.js"
+    },
+    "./stores/cloudflare-d1-oauth-state": {
+      "types": "./server/stores/cloudflareD1OAuthStateStore.d.ts",
+      "default": "./server/stores/cloudflareD1OAuthStateStore.js"
+    },
+    "./stores/cloudflare-d1-counter": {
+      "types": "./server/stores/cloudflareD1CounterStore.d.ts",
+      "default": "./server/stores/cloudflareD1CounterStore.js"
+    },
     "./react": {
       "types": "./client/react/index.d.ts",
       "default": "./client/react/index.js"
     }
   },
   "peerDependencies": {
+    "hono": "^4.0.0",
     "react": ">=16.8.0"
   },
   "peerDependenciesMeta": {
+    "hono": {
+      "optional": true
+    },
     "react": {
       "optional": true
     }
@@ -49,7 +73,7 @@
   "scripts": {
     "start": "node example.js",
     "dev": "nodemon example.js",
-    "test": "node test_auth.js",
+    "test": "node test_auth.js && node test_cloudflare.js",
     "prepublishOnly": "npm test"
   },
   "repository": {
@@ -64,6 +88,8 @@
     "auth",
     "authentication",
     "express",
+    "cloudflare",
+    "hono",
     "jwt",
     "session",
     "email",
@@ -78,7 +104,15 @@
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "express-session": "^1.18.2",
-    "jsonwebtoken": "^9.0.2",
     "nodemailer": "^10.1.7"
+  },
+  "devDependencies": {
+    "hono": "^4.13.13",
+    "miniflare": "^4.20260730.0"
+  },
+  "overrides": {
+    "sharp": "^0.35.5",
+    "undici": "^7.29.1",
+    "ws": "^8.22.0"
   }
 }

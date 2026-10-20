@@ -15,11 +15,35 @@ const mongooseAdapter = require("./adapters/mongoose");
 const MemoryRefreshTokenStore = require("./stores/memoryRefreshTokenStore");
 const RedisRateLimitStore = require("./stores/redisRateLimitStore");
 const MemoryRateLimitStore = require("./stores/memoryRateLimitStore");
+const sendSMTPOTP = require("./utils/smtpMailer");
+const validateOAuthProviders = require("./utils/oauthProviderConfig");
+const { randomString } = require("./utils/webCrypto");
 
 dotenv.config();
 
 function devAuthKit(app, options = {}) {
-  const activeConfig = config.set(options);
+  const activeConfig = config.set({
+    ...options,
+    smtpMailer: options.smtpMailer || sendSMTPOTP,
+    smtpMailerAvailable: options.smtpMailer ? true : sendSMTPOTP.isConfigured()
+  });
+  const jwtSecret = options.jwtSecret || process.env.JWT_SECRET ||
+    options.sessionSecret || process.env.SESSION_SECRET;
+  const sessionSecret = options.sessionSecret || process.env.SESSION_SECRET;
+  const isProduction = process.env.NODE_ENV === "production";
+  const hasStrongSecret = (secret) => typeof secret === "string" &&
+    Buffer.byteLength(secret, "utf8") >= 32;
+  if (
+    activeConfig.jwtSecret === "devAuthJwtSecretKey_change_in_production" ||
+    activeConfig.sessionSecret === "devAuthSecret"
+  ) {
+    throw new TypeError("Public development secrets are not allowed");
+  }
+  if (isProduction && (!hasStrongSecret(jwtSecret) || !hasStrongSecret(sessionSecret))) {
+    throw new TypeError("Production requires explicit JWT and session secrets of at least 32 bytes");
+  }
+  if (!activeConfig.jwtSecret) activeConfig.jwtSecret = randomString(32, "hex");
+  validateOAuthProviders(activeConfig.oauthProviders);
   if (activeConfig.otpStore && !["get", "set", "delete", "recordAttempt"].every(
     (method) => typeof activeConfig.otpStore[method] === "function"
   )) {
@@ -27,6 +51,17 @@ function devAuthKit(app, options = {}) {
   }
   if (activeConfig.userAdapter && typeof activeConfig.userAdapter.findOrCreateUser !== "function") {
     throw new TypeError("userAdapter must implement a findOrCreateUser method");
+  }
+  if (activeConfig.userAdapter && ["findUserByOAuthIdentity", "linkOAuthIdentity"].some(
+    (method) => activeConfig.userAdapter[method] !== undefined &&
+      typeof activeConfig.userAdapter[method] !== "function"
+  )) {
+    throw new TypeError("OAuth userAdapter identity methods must be functions when provided");
+  }
+  if (activeConfig.oauthStateStore && !["put", "consume"].every(
+    (method) => typeof activeConfig.oauthStateStore[method] === "function"
+  )) {
+    throw new TypeError("oauthStateStore must implement put(state, expiresAt) and atomic consume(state)");
   }
   if (activeConfig.mapUserPayload !== undefined && typeof activeConfig.mapUserPayload !== "function") {
     throw new TypeError("mapUserPayload must be a function");

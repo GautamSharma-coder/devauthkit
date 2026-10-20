@@ -1,4 +1,4 @@
-const jwt = require("jsonwebtoken");
+const { verifyJwt } = require("../utils/webCrypto");
 const config = require("../config");
 const defaultRefreshTokenStore = require("../stores/defaultRefreshTokenStore");
 
@@ -18,7 +18,7 @@ async function validateFamily(user) {
 async function attachVerifiedToken(token, req, res, next, source) {
   let decoded;
   try {
-    decoded = jwt.verify(token, config.get("jwtSecret"));
+    decoded = await verifyJwt(token, config.get("jwtSecret"));
   } catch {
     return unauthorized(res, `Unauthorized: Invalid or expired ${source}`);
   }
