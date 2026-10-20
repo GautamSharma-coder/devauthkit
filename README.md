@@ -38,6 +38,7 @@
 - 🕒 **In-Memory TTL Store**: Auto-pruning memory store to prevent leaks without requiring a database for rapid prototypes.
 - 🗄️ **Pluggable Storage**: Keep OTP state in memory by default, or use the Redis OTP adapter and a persistent `express-session` store for multi-instance deployments.
 - 👤 **Persistent User Identity**: Optionally create or load a database user at login with a pluggable user adapter and included Prisma adapter.
+- 🌐 **Google OAuth 2.0**: Built-in social login with PKCE (`S256`), CSRF protection, verified email enforcement, and seamless user adapter mapping.
 - 🚪 **Complete Auth Lifecycle**: Built-in `/auth/me` profile inspection and `/auth/logout` session destruction.
 - 🔄 **Reactive State Management**: `auth.onAuthStateChanged()` listener for instant frontend UI re-renders on login/logout.
 
@@ -316,11 +317,12 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 ## 🔖 Version Changelog
 
-- **Next**:
-  - Added optional Google OAuth with session-bound state validation, PKCE, verified-email checks, and user-adapter integration.
-  - Added pluggable OTP storage with a Redis adapter and configurable persistent `express-session` store.
-  - Added a Prisma user adapter for persistent user identity and configurable JWT claims.
-  - Preserved the built-in in-memory OTP and session stores as the zero-configuration defaults.
+- **v1.3.0**:
+  - **Google OAuth 2.0**: Built-in social login with native PKCE (`S256`), timing-safe CSRF state validation, and automatic session regeneration.
+  - **Persistent Database Identity (Prisma Adapter)**: Pluggable `userAdapter` interface with first-class Prisma adapter (`devauthkit/adapters/prisma`) and configurable JWT payload mapping.
+  - **Distributed OTP Caching (Redis Store)**: High-concurrency `RedisOtpStore` with atomic attempt rate-limiting.
+  - **Pluggable Session Store**: Support for persistent `express-session` stores (e.g. `connect-redis`).
+  - Comprehensive automated test suite expanded to 40/40 passing tests.
 - **v1.2.0**:
   - **100% Native TypeScript Support**: Added first-class `.d.ts` declaration files for both backend and client SDK.
   - **Triple-Strategy Auth**: Added secure `httpOnly` cookie issuance and verification in `requireAuth` middleware.
