@@ -1,4 +1,66 @@
 import type { Application, Request, Response, NextFunction } from "express";
+import type { Store } from "express-session";
+
+export interface OtpStore {
+  get(email: string): { otp: string; attempts: number; createdAt: number } | null | Promise<{ otp: string; attempts: number; createdAt: number } | null>;
+  set(email: string, data: { otp: string; attempts: number; createdAt: number }): void | Promise<void>;
+  delete(email: string): void | Promise<void>;
+  recordAttempt(email: string): number | Promise<number>;
+}
+
+export interface RedisClientLike {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, options: { EX: number }): Promise<unknown>;
+  del(keys: string | string[]): Promise<number>;
+  incr(key: string): Promise<number>;
+}
+
+export interface AdapterUser {
+  id: string | number;
+  email: string;
+  role?: string;
+  [key: string]: unknown;
+}
+
+export interface UserAdapter {
+  findOrCreateUser(data: { email: string }): AdapterUser | Promise<AdapterUser>;
+}
+
+export interface AuthIdentityContext {
+  provider?: "google";
+  providerId?: string;
+  name?: string;
+  picture?: string;
+}
+
+export type UserPayloadMapper = (
+  user: AdapterUser,
+  identity?: AuthIdentityContext
+) => Record<string, unknown>;
+
+export interface GoogleOAuthOptions {
+  clientId: string;
+  clientSecret: string;
+  callbackURL: string;
+  /** Optional application URL to redirect to after setting the auth cookie. */
+  successRedirectURL?: string;
+}
+
+export function prismaAdapter<T extends object>(
+  prisma: T,
+  options?: {
+    model?: string;
+    fields?: { id?: string; email?: string; role?: string };
+  }
+): UserAdapter;
+
+export class RedisOtpStore implements OtpStore {
+  constructor(client: RedisClientLike, options?: { keyPrefix?: string; ttlSeconds?: number });
+  get(email: string): Promise<{ otp: string; attempts: number; createdAt: number } | null>;
+  set(email: string, data: { otp: string; attempts: number; createdAt: number }): Promise<void>;
+  delete(email: string): Promise<void>;
+  recordAttempt(email: string): Promise<number>;
+}
 
 export interface DevAuthConfigOptions {
   /**
@@ -92,6 +154,34 @@ export interface DevAuthConfigOptions {
    * @default false
    */
   debug?: boolean;
+
+  /**
+   * Custom OTP storage adapter. Must implement get, set, delete, and atomic recordAttempt.
+   * Defaults to the built-in in-memory store.
+   */
+  otpStore?: OtpStore;
+
+  /**
+   * Custom express-session store, such as connect-redis.
+   * Defaults to express-session's in-memory store.
+   */
+  sessionStore?: Store;
+
+  /**
+   * Optional persistent user lookup/create adapter. When omitted, users remain email-only.
+   */
+  userAdapter?: UserAdapter;
+
+  /**
+   * Map an adapter user to additional safe JWT and req.user claims.
+   * The mapped id, email, and role (when present) remain authoritative.
+   */
+  mapUserPayload?: UserPayloadMapper;
+
+  /**
+   * Enable Google OAuth with a registered callback URL. When omitted, Google routes return 404.
+   */
+  google?: GoogleOAuthOptions;
 }
 
 export interface AuthenticatedUser {
@@ -118,9 +208,12 @@ export interface DevAuthKitInstance {
     set: (options?: DevAuthConfigOptions) => DevAuthConfigOptions;
     get: (key?: keyof DevAuthConfigOptions) => any;
   };
+  RedisOtpStore: typeof RedisOtpStore;
+  prismaAdapter: typeof prismaAdapter;
 }
 
 declare const devAuthKit: DevAuthKitInstance;
 
 export default devAuthKit;
 export { devAuthKit };
+export { prismaAdapter };

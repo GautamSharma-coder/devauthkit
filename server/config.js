@@ -12,6 +12,11 @@ const defaultConfig = {
   apiPrefix: "/auth",
   setHttpOnlyCookie: true,
   cookieName: "devauth_token",
+  otpStore: undefined,
+  sessionStore: undefined,
+  userAdapter: undefined,
+  mapUserPayload: undefined,
+  google: undefined,
   emailProvider: process.env.RESEND_API_KEY ? "resend" : "smtp",
   resendApiKey: process.env.RESEND_API_KEY || "",
   fromEmail: process.env.FROM_EMAIL || process.env.EMAIL_USER || "onboarding@resend.dev"
@@ -34,6 +39,9 @@ module.exports = {
     currentConfig = {
       ...defaultConfig,
       ...options,
+      userAdapter: options.userAdapter,
+      mapUserPayload: options.mapUserPayload,
+      google: options.google,
       sessionSecret: options.sessionSecret || process.env.SESSION_SECRET || defaultConfig.sessionSecret,
       jwtSecret: options.jwtSecret || process.env.JWT_SECRET || options.sessionSecret || defaultConfig.jwtSecret,
       devMode: options.devMode !== undefined ? Boolean(options.devMode) : isDevModeAuto,

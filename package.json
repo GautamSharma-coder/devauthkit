@@ -12,6 +12,10 @@
     "./client": {
       "types": "./client/index.d.ts",
       "default": "./client/index.js"
+    },
+    "./adapters/prisma": {
+      "types": "./server/adapters/prisma.d.ts",
+      "default": "./server/adapters/prisma.js"
     }
   },
   "files": [

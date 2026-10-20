@@ -7,11 +7,59 @@ const cors = require("cors");
 const config = require("./config");
 const authRoutes = require("./routes/authRoutes");
 const requireAuth = require("./middleware/requireAuth");
+const RedisOtpStore = require("./stores/redisOtpStore");
+const prismaAdapter = require("./adapters/prisma");
 
 dotenv.config();
 
 function devAuthKit(app, options = {}) {
   const activeConfig = config.set(options);
+  if (activeConfig.otpStore && !["get", "set", "delete", "recordAttempt"].every(
+    (method) => typeof activeConfig.otpStore[method] === "function"
+  )) {
+    throw new TypeError("otpStore must implement get, set, delete, and recordAttempt methods");
+  }
+  if (activeConfig.userAdapter && typeof activeConfig.userAdapter.findOrCreateUser !== "function") {
+    throw new TypeError("userAdapter must implement a findOrCreateUser method");
+  }
+  if (activeConfig.mapUserPayload !== undefined && typeof activeConfig.mapUserPayload !== "function") {
+    throw new TypeError("mapUserPayload must be a function");
+  }
+  if (activeConfig.google) {
+    const { clientId, clientSecret, callbackURL } = activeConfig.google;
+    let callback;
+    try {
+      callback = new URL(callbackURL);
+    } catch {
+      throw new TypeError("google.callbackURL must be an absolute HTTP or HTTPS URL");
+    }
+    const localHost = ["localhost", "127.0.0.1", "::1"].includes(callback.hostname);
+    if (
+      typeof clientId !== "string" || !clientId.trim() ||
+      typeof clientSecret !== "string" || !clientSecret.trim() ||
+      !["https:", "http:"].includes(callback.protocol) ||
+      (callback.protocol !== "https:" && !localHost) ||
+      callback.hash
+    ) {
+      throw new TypeError("google requires clientId, clientSecret, and a valid HTTPS callbackURL (HTTP is allowed on localhost)");
+    }
+    if (activeConfig.google.successRedirectURL !== undefined) {
+      let successRedirect;
+      try {
+        successRedirect = new URL(activeConfig.google.successRedirectURL);
+      } catch {
+        throw new TypeError("google.successRedirectURL must be an absolute HTTP or HTTPS URL");
+      }
+      const localSuccessHost = ["localhost", "127.0.0.1", "::1"].includes(successRedirect.hostname);
+      if (
+        !["https:", "http:"].includes(successRedirect.protocol) ||
+        (successRedirect.protocol !== "https:" && !localSuccessHost) ||
+        successRedirect.hash
+      ) {
+        throw new TypeError("google.successRedirectURL must use HTTPS (HTTP is allowed on localhost)");
+      }
+    }
+  }
 
   // Setup CORS
   app.use(cors({
@@ -28,6 +76,7 @@ function devAuthKit(app, options = {}) {
     secret: activeConfig.sessionSecret,
     resave: false,
     saveUninitialized: false,
+    ...(activeConfig.sessionStore ? { store: activeConfig.sessionStore } : {}),
     cookie: { 
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
@@ -64,5 +113,7 @@ function devAuthKit(app, options = {}) {
 devAuthKit.requireAuth = requireAuth;
 devAuthKit.devAuthKit = devAuthKit;
 devAuthKit.config = config;
+devAuthKit.RedisOtpStore = RedisOtpStore;
+devAuthKit.prismaAdapter = prismaAdapter;
 
 module.exports = devAuthKit;

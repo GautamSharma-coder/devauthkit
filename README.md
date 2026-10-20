@@ -36,6 +36,8 @@
 - 📦 **Built-in Client SDK**: Import `DevAuthClient` from `devauthkit/client` for 3-line frontend auth in React, Vue, Next.js, or Vanilla JS.
 - 🚫 **Brute-Force & Replay Shield**: Automatic lockout after 5 failed attempts, OTP invalidation on verification, and cooldown throttling.
 - 🕒 **In-Memory TTL Store**: Auto-pruning memory store to prevent leaks without requiring a database for rapid prototypes.
+- 🗄️ **Pluggable Storage**: Keep OTP state in memory by default, or use the Redis OTP adapter and a persistent `express-session` store for multi-instance deployments.
+- 👤 **Persistent User Identity**: Optionally create or load a database user at login with a pluggable user adapter and included Prisma adapter.
 - 🚪 **Complete Auth Lifecycle**: Built-in `/auth/me` profile inspection and `/auth/logout` session destruction.
 - 🔄 **Reactive State Management**: `auth.onAuthStateChanged()` listener for instant frontend UI re-renders on login/logout.
 
@@ -80,6 +82,67 @@ app.listen(3000, () => {
   console.log("Server running on http://localhost:3000");
 });
 ```
+
+### Persistent users with Prisma
+
+Provide a `userAdapter` to resolve a stable user record when an OTP is verified. The included Prisma adapter uses Prisma's `upsert`, so the email field must be unique in your model. Prisma remains an optional dependency owned by your application.
+
+```bash
+npm install @prisma/client
+```
+
+```javascript
+const express = require("express");
+const { PrismaClient } = require("@prisma/client");
+const devAuthKit = require("devauthkit");
+const prismaAdapter = require("devauthkit/adapters/prisma");
+
+const prisma = new PrismaClient();
+const app = express();
+
+devAuthKit(app, {
+  userAdapter: prismaAdapter(prisma),
+  mapUserPayload: (user) => ({ role: user.role, plan: user.plan }),
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET
+});
+
+app.get("/api/dashboard", devAuthKit.requireAuth, (req, res) => {
+  res.json({ userId: req.user.id, role: req.user.role });
+});
+```
+
+By default, the adapter uses `prisma.user` and the `id`, `email`, and optional `role` fields. Customize the model delegate or field names when needed:
+
+```javascript
+const prismaAdapter = require("devauthkit/adapters/prisma");
+const userAdapter = prismaAdapter(prisma, {
+  model: "account",
+  fields: { id: "userId", email: "emailAddress", role: "accessLevel" }
+});
+```
+
+The verified user ID, email, optional role, and values returned by `mapUserPayload` are placed in the JWT and `req.user`; protected requests do not query Prisma. Only add safe claims to tokens. Without `userAdapter`, the existing email-only user behavior is unchanged. Custom adapters implement `findOrCreateUser({ email })` and return a user object containing `id` and `email`.
+
+### Google sign-in
+
+Create an OAuth 2.0 Web application credential in Google Cloud, add the exact callback URL to its authorized redirect URIs, and configure the optional `google` object:
+
+```javascript
+devAuthKit(app, {
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/callback",
+    successRedirectURL: "http://localhost:3001/"
+  },
+  userAdapter: prismaAdapter(prisma),
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET
+});
+```
+
+Start the sign-in by navigating the browser to `GET /auth/google`. Google returns to `GET /auth/google/callback`. The flow validates a one-time session-bound `state`, uses PKCE, retrieves the profile from Google's userinfo endpoint, and requires a verified email. It resolves that email through `userAdapter` when configured. The callback sets the normal httpOnly auth cookie and redirects to `successRedirectURL` when provided and cookies are enabled; otherwise it responds with the same token/user JSON shape as OTP verification. Use HTTPS callback and success URLs outside localhost, and keep the Google client secret on the server. Google routes return 404 when Google OAuth is not configured.
 
 ---
 
@@ -148,6 +211,8 @@ By default, routes are mounted under `/auth`:
 | :--- | :--- | :--- |
 | `POST` | `/auth/login` *(or `/auth/request-otp`)* | Request an OTP sent to the user's email. |
 | `POST` | `/auth/verify` *(or `/auth/verify-otp`)* | Verify the OTP; returns JWT token & starts session. |
+| `GET` | `/auth/google` | Start Google OAuth sign-in (when configured). |
+| `GET` | `/auth/google/callback` | Complete Google OAuth sign-in (when configured). |
 | `GET` | `/auth/me` | Return authenticated user's info (requires Bearer token or session). |
 | `POST` | `/auth/logout` | Destroy session and clear session cookies. |
 | `GET` | `/profile` | Built-in test route verifying authentication status. |
@@ -174,7 +239,53 @@ Pass configuration options to `devAuthKit(app, options)`:
 | `resendApiKey` | `string` | `process.env.RESEND_API_KEY` | API Key for transactional delivery via Resend. |
 | `fromEmail` | `string` | `process.env.FROM_EMAIL` | Sender address (e.g. `"auth@myapp.com"`). |
 | `mailer` | `function` | `undefined` | Custom async mailer function `async ({ email, otp }) => {}`. |
+| `otpStore` | `OtpStore` | In-memory store | Storage adapter for OTP records; must implement `get`, `set`, `delete`, and atomic `recordAttempt`. |
+| `sessionStore` | `express-session` store | In-memory store | Optional persistent session store, such as `connect-redis`. |
+| `userAdapter` | `UserAdapter` | Email-only user | Optional adapter that finds or creates a persistent user after OTP verification. |
+| `mapUserPayload` | `function` | Core user claims | Maps an adapter user to additional safe claims included in the JWT and `req.user`. |
+| `google` | `GoogleOAuthOptions` | Disabled | Optional Google OAuth credentials, callback URL, and post-login redirect. |
 | `debug` | `boolean` | `false` | Enable verbose internal logging. |
+
+### Persistent storage with Redis
+
+Install the Redis client and the Express session adapter:
+
+```bash
+npm install redis connect-redis
+```
+
+Pass the same connected Redis client to DevAuthKit's OTP adapter and the session adapter. OTP storage and Express session storage are separate: configure both to persist both kinds of state across restarts and application instances.
+
+```javascript
+const express = require("express");
+const { createClient } = require("redis");
+const { RedisStore: ExpressRedisStore } = require("connect-redis");
+const devAuthKit = require("devauthkit");
+
+async function start() {
+  const app = express();
+  const redis = createClient({ url: process.env.REDIS_URL });
+
+  redis.on("error", (error) => console.error("Redis error:", error));
+  await redis.connect();
+
+  devAuthKit(app, {
+    otpStore: new devAuthKit.RedisOtpStore(redis),
+    sessionStore: new ExpressRedisStore({ client: redis }),
+    sessionSecret: process.env.SESSION_SECRET,
+    jwtSecret: process.env.JWT_SECRET
+  });
+
+  app.listen(3000);
+}
+
+start().catch((error) => {
+  console.error("Failed to start DevAuthKit:", error);
+  process.exitCode = 1;
+});
+```
+
+`RedisOtpStore` uses Redis' `get`, `set`, `del`, and atomic `incr` commands (compatible with the `redis` Node.js client). It stores OTP records and a separate attempt counter for 15 minutes by default. Customize its namespace or TTL with `new devAuthKit.RedisOtpStore(redis, { keyPrefix: "myapp:otp:", ttlSeconds: 900 })`. Custom OTP adapters must implement all four adapter methods; `recordAttempt` must increment attempts atomically when shared across multiple application instances.
 
 ---
 
@@ -193,6 +304,10 @@ FROM_EMAIL=auth@yourdomain.com
 # Option B: Standard SMTP (e.g. Gmail App Password, SendGrid, Postmark)
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASS=your-16-character-app-password
+
+# Optional: Google OAuth (configure the matching callback URL in Google Cloud)
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 ```
 
 > **Note:** If both `RESEND_API_KEY` and `EMAIL_USER` are omitted, DevAuthKit automatically activates **Zero-Setup Dev Mode** and prints OTPs directly to your console!
@@ -201,6 +316,11 @@ EMAIL_PASS=your-16-character-app-password
 
 ## 🔖 Version Changelog
 
+- **Next**:
+  - Added optional Google OAuth with session-bound state validation, PKCE, verified-email checks, and user-adapter integration.
+  - Added pluggable OTP storage with a Redis adapter and configurable persistent `express-session` store.
+  - Added a Prisma user adapter for persistent user identity and configurable JWT claims.
+  - Preserved the built-in in-memory OTP and session stores as the zero-configuration defaults.
 - **v1.2.0**:
   - **100% Native TypeScript Support**: Added first-class `.d.ts` declaration files for both backend and client SDK.
   - **Triple-Strategy Auth**: Added secure `httpOnly` cookie issuance and verification in `requireAuth` middleware.
@@ -242,4 +362,3 @@ GitHub: [@GautamSharma-coder](https://github.com/GautamSharma-coder)
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
-
