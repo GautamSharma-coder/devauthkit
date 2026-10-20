@@ -1,11 +1,41 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+let cachedCrypto = null;
+
 function cryptoApi() {
-  if (!globalThis.crypto?.subtle || typeof globalThis.crypto.getRandomValues !== "function") {
-    throw new Error("DevAuthKit requires the Web Crypto API");
+  if (cachedCrypto) return cachedCrypto;
+  if (globalThis.crypto?.subtle && typeof globalThis.crypto.getRandomValues === "function") {
+    cachedCrypto = globalThis.crypto;
+    return cachedCrypto;
   }
-  return globalThis.crypto;
+  try {
+    const nodeCrypto = require("node:crypto");
+    const webcrypto = nodeCrypto.webcrypto;
+    if (webcrypto?.subtle && typeof webcrypto.getRandomValues === "function") {
+      cachedCrypto = webcrypto;
+      if (!globalThis.crypto) {
+        try {
+          globalThis.crypto = webcrypto;
+        } catch {}
+      }
+      return cachedCrypto;
+    }
+  } catch {}
+  try {
+    const nodeCrypto = require("crypto");
+    const webcrypto = nodeCrypto.webcrypto;
+    if (webcrypto?.subtle && typeof webcrypto.getRandomValues === "function") {
+      cachedCrypto = webcrypto;
+      if (!globalThis.crypto) {
+        try {
+          globalThis.crypto = webcrypto;
+        } catch {}
+      }
+      return cachedCrypto;
+    }
+  } catch {}
+  throw new Error("DevAuthKit requires the Web Crypto API");
 }
 
 function toBase64Url(bytes) {

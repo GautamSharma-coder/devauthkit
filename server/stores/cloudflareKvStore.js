@@ -1,3 +1,5 @@
+const { randomUUID } = require("../utils/webCrypto");
+
 function requireKvNamespace(namespace, name) {
   if (!namespace || typeof namespace.get !== "function" || typeof namespace.put !== "function" || typeof namespace.delete !== "function") {
     throw new TypeError(`${name} requires a Cloudflare KV namespace`);
@@ -67,7 +69,7 @@ class CloudflareKvOtpStore {
     await this.namespace.put(this.key(email), JSON.stringify({
       otp: data.otp,
       createdAt: data.createdAt,
-      attemptKey: `${this.key(email)}:attempts:${crypto.randomUUID()}`
+      attemptKey: `${this.key(email)}:attempts:${randomUUID()}`
     }), options);
   }
 
