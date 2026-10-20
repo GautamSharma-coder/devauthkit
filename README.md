@@ -318,6 +318,7 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 ## 🔖 Version Changelog
 
 - **Next (v1.4.0 — In Development)**:
+  - 🔄 **Revocable Sessions & Refresh-Token Rotation**: Short-lived access tokens (15m) paired with rotating refresh tokens (30d), instant session revocation on logout, automatic token theft/reuse detection (RFC 6819), and multi-device sign-out (`POST /auth/logout-all`).
   - 🐙 **GitHub OAuth 2.0**: Native 1-click developer login with PKCE and profile identity mapping.
   - 🔗 **Magic Link Authentication**: Click-to-login secure email verification links alongside 6-digit OTPs.
   - 💧 **Drizzle ORM & Mongoose Adapters**: First-class database adapters for Drizzle and MongoDB users.
