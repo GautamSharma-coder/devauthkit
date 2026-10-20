@@ -1,5 +1,7 @@
 # DevAuthKit 🔐
 
+<a href="https://www.producthunt.com/products/devauthkit?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-devauthkit" target="_blank" rel="noopener noreferrer"><img alt="devauthkit - Plug-and-play passwordless auth &amp; JWT for Express.js | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1286171&amp;theme=light&amp;t=1792469701608"></a>
+
 [![npm version](https://img.shields.io/npm/v/devauthkit.svg)](https://www.npmjs.com/package/devauthkit)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![CI](https://github.com/GautamSharma-coder/devauthkit/actions/workflows/ci.yml/badge.svg)](https://github.com/GautamSharma-coder/devauthkit/actions/workflows/ci.yml)
