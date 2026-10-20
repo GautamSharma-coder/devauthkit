@@ -317,6 +317,12 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 ## 🔖 Version Changelog
 
+- **Next (v1.4.0 — In Development)**:
+  - 🐙 **GitHub OAuth 2.0**: Native 1-click developer login with PKCE and profile identity mapping.
+  - 🔗 **Magic Link Authentication**: Click-to-login secure email verification links alongside 6-digit OTPs.
+  - 💧 **Drizzle ORM & Mongoose Adapters**: First-class database adapters for Drizzle and MongoDB users.
+  - 🛡️ **Role-Based Access Control (RBAC)**: Built-in `requireRole(["admin"])` middleware for granular route permissions.
+  - ⚛️ **React & Next.js Hooks**: Official `useAuth()` hook for effortless frontend integration.
 - **v1.3.0**:
   - **Google OAuth 2.0**: Built-in social login with native PKCE (`S256`), timing-safe CSRF state validation, and automatic session regeneration.
   - **Persistent Database Identity (Prisma Adapter)**: Pluggable `userAdapter` interface with first-class Prisma adapter (`devauthkit/adapters/prisma`) and configurable JWT payload mapping.
