@@ -3,9 +3,11 @@ const { deleteCookie, getCookie, setCookie } = require("hono/cookie");
 const config = require("../config");
 const authController = require("../controllers/authController");
 const defaultRefreshTokenStore = require("../stores/defaultRefreshTokenStore");
+const { verifyDPoPProof, DPoPError } = require("../core/dpopService");
 const MemoryRateLimitStore = require("../stores/memoryRateLimitStore");
 const { sha256Hex, signJwt, verifyJwt } = require("../utils/webCrypto");
 const validateOAuthProviders = require("../utils/oauthProviderConfig");
+const validatePasskeyConfig = require("../utils/passkeyConfig");
 
 const rateLimitStore = new MemoryRateLimitStore();
 const OAUTH_SESSION_COOKIE = "devauthkit_oauth_state";
@@ -188,7 +190,14 @@ function makeRateLimit(name) {
 function requireAuth() {
   return async (c, next) => {
     const authorization = c.req.header("authorization");
-    let token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
+    let token = null;
+    if (authorization) {
+      if (authorization.startsWith("Bearer ")) {
+        token = authorization.slice(7);
+      } else if (authorization.startsWith("DPoP ")) {
+        token = authorization.slice(5);
+      }
+    }
     const cookieName = config.get("cookieName") || "devauth_token";
     token ||= getCookie(c, cookieName);
     if (!token) return c.json({ error: "Unauthorized: No valid session, token, or auth cookie provided" }, 401);
@@ -198,6 +207,44 @@ function requireAuth() {
       user = await verifyJwt(token, config.get("jwtSecret"));
     } catch {
       return c.json({ error: `Unauthorized: Invalid or expired ${authorization ? "token" : "cookie token"}` }, 401);
+    }
+
+    if (user.cnf?.jkt) {
+      const dpopHeader = c.req.header("dpop");
+      if (!dpopHeader) {
+        c.header("WWW-Authenticate", 'DPoP error="invalid_dpop_proof", error_description="Missing DPoP proof header"');
+        return c.json({ error: "Unauthorized: DPoP proof header required for this token" }, 401);
+      }
+
+      try {
+        const replayStore = config.get("dpopReplayStore");
+        if (!replayStore || typeof replayStore.record !== "function") {
+          return c.json({
+            error: "dpop_replay_store_unavailable",
+            message: "DPoP replay protection is not configured"
+          }, 503);
+        }
+        const verification = await verifyDPoPProof({
+          proofJwt: dpopHeader,
+          expectedMethod: c.req.method,
+          expectedUri: c.req.url,
+          expectedAccessToken: token,
+          expectedNonce: config.get("dpopNonce"),
+          replayStore,
+          maxClockSkewSeconds: config.get("dpopMaxClockSkewSeconds") || 60
+        });
+
+        if (verification.jkt !== user.cnf.jkt) {
+          c.header("WWW-Authenticate", 'DPoP error="invalid_dpop_proof", error_description="Thumbprint mismatch"');
+          return c.json({ error: "Unauthorized: DPoP key binding mismatch" }, 401);
+        }
+        c.set("dpop", { jkt: verification.jkt, payload: verification.payload });
+      } catch (err) {
+        const status = err instanceof DPoPError ? err.status : 401;
+        const code = err instanceof DPoPError ? err.code : "invalid_dpop_proof";
+        c.header("WWW-Authenticate", `DPoP error="${code}", error_description="${err.message}"`);
+        return c.json({ error: code, message: err.message }, status);
+      }
     }
 
     if (user.sid && config.get("refreshTokens")) {
@@ -216,12 +263,71 @@ function requireAuth() {
   };
 }
 
+function requireDPoP() {
+  return async (c, next) => {
+    const dpopHeader = c.req.header("dpop");
+    if (!dpopHeader) {
+      c.header("WWW-Authenticate", 'DPoP error="invalid_dpop_proof", error_description="DPoP header is required"');
+      return c.json({ error: "invalid_dpop_proof", message: "DPoP header is required for this endpoint" }, 401);
+    }
+    if (c.get("dpop")) return next();
+
+    try {
+      const replayStore = config.get("dpopReplayStore");
+      if (!replayStore || typeof replayStore.record !== "function") {
+        return c.json({
+          error: "dpop_replay_store_unavailable",
+          message: "DPoP replay protection is not configured"
+        }, 503);
+      }
+      const authorization = c.req.header("authorization");
+      let token = authorization ? authorization.replace(/^(DPoP|Bearer)\s+/i, "") : undefined;
+      const verification = await verifyDPoPProof({
+        proofJwt: dpopHeader,
+        expectedMethod: c.req.method,
+        expectedUri: c.req.url,
+        expectedAccessToken: token,
+        expectedNonce: config.get("dpopNonce"),
+        replayStore,
+        maxClockSkewSeconds: config.get("dpopMaxClockSkewSeconds") || 60
+      });
+
+      const user = c.get("user");
+      if (user?.cnf?.jkt && user.cnf.jkt !== verification.jkt) {
+        c.header("WWW-Authenticate", 'DPoP error="invalid_dpop_proof", error_description="Key binding mismatch"');
+        return c.json({ error: "invalid_dpop_proof", message: "DPoP key binding mismatch" }, 401);
+      }
+      c.set("dpop", { jkt: verification.jkt, payload: verification.payload });
+      await next();
+    } catch (err) {
+      const status = err instanceof DPoPError ? err.status : 401;
+      const code = err instanceof DPoPError ? err.code : "invalid_dpop_proof";
+      c.header("WWW-Authenticate", `DPoP error="${code}", error_description="${err.message}"`);
+      return c.json({ error: code, message: err.message }, status);
+    }
+  };
+}
+
 function createAuthRouter(options = {}) {
+  if (!options.jwtSecret || options.jwtSecret === "devAuthJwtSecretKey_change_in_production") {
+    throw new TypeError("createAuthRouter requires an explicit jwtSecret");
+  }
   const activeConfig = config.set({
     ...options,
     sessionSecret: options.sessionSecret || options.jwtSecret
   });
+  const dpopEnabled = activeConfig.dpop && activeConfig.dpop !== "disabled" &&
+    activeConfig.dpop?.mode !== "disabled";
+  if (dpopEnabled &&
+      (!activeConfig.dpopReplayStore || typeof activeConfig.dpopReplayStore.record !== "function")) {
+    throw new TypeError("Hono DPoP requires a dpopReplayStore implementing atomic record(jti, ttlSeconds)");
+  }
   validateOAuthProviders(activeConfig.oauthProviders);
+  validatePasskeyConfig(
+    activeConfig.passkeys,
+    activeConfig.passkeyStore,
+    activeConfig.passkeyChallengeStore
+  );
   const oauthEnabled = Boolean(
     activeConfig.google ||
     activeConfig.github ||
@@ -234,9 +340,6 @@ function createAuthRouter(options = {}) {
     (method) => typeof activeConfig.oauthStateStore[method] === "function"
   )) {
     throw new TypeError("oauthStateStore must implement put(state, expiresAt) and atomic consume(state)");
-  }
-  if (!activeConfig.jwtSecret || activeConfig.jwtSecret === "devAuthJwtSecretKey_change_in_production") {
-    throw new TypeError("createAuthRouter requires an explicit jwtSecret");
   }
   if (activeConfig.devMode === false && typeof activeConfig.mailer !== "function" &&
       !(activeConfig.emailProvider === "resend" && activeConfig.resendApiKey)) {
@@ -330,6 +433,14 @@ function createAuthRouter(options = {}) {
   router.get(`${prefix}/oauth/:provider`, dispatch(authController.startOAuth, "oauthStart"));
   router.get(`${prefix}/oauth/:provider/callback`, dispatch(authController.oauthCallback, "oauthCallback"));
   router.post(`${prefix}/oauth/:provider/link`, requireAuth(), dispatch(authController.linkOAuth, "oauthLink"));
+  if (activeConfig.passkeys) {
+    router.post(`${prefix}/passkeys/register/options`, requireAuth(), dispatch(authController.passkeyRegistrationOptions, "passkeyRegisterOptions"));
+    router.post(`${prefix}/passkeys/register/verify`, requireAuth(), dispatch(authController.verifyPasskeyRegistration, "passkeyRegisterVerify"));
+    router.post(`${prefix}/passkeys/authenticate/options`, dispatch(authController.passkeyAuthenticationOptions, "passkeyAuthenticationOptions"));
+    router.post(`${prefix}/passkeys/authenticate/verify`, dispatch(authController.verifyPasskeyAuthentication, "passkeyAuthenticationVerify"));
+    router.get(`${prefix}/passkeys`, requireAuth(), dispatch(authController.listPasskeys, "passkeyList"));
+    router.delete(`${prefix}/passkeys/:credentialId`, requireAuth(), dispatch(authController.deletePasskey, "passkeyDelete"));
+  }
   router.post(`${prefix}/refresh`, dispatch(authController.refreshTokens, "refresh"));
   router.post(`${prefix}/logout`, dispatch(authController.logout, "logout"));
   router.get(`${prefix}/logout`, dispatch(authController.logout, "logout"));
@@ -340,4 +451,4 @@ function createAuthRouter(options = {}) {
   return router;
 }
 
-module.exports = { createAuthRouter, requireAuth };
+module.exports = { createAuthRouter, requireAuth, requireDPoP };

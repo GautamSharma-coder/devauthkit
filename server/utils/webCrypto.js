@@ -160,11 +160,14 @@ async function verifyJwt(token, secret) {
 
 module.exports = {
   constantTimeEqual,
+  cryptoApi,
+  fromBase64Url,
   randomBytes,
   randomString,
   randomUUID,
   sha256Base64Url,
   sha256Hex,
   signJwt,
+  toBase64Url,
   verifyJwt
 };

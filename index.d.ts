@@ -38,6 +38,16 @@ export interface RedisRateLimitClient {
   pExpire(key: string, milliseconds: number): Promise<number | boolean>;
 }
 
+export interface RedisDpopReplayClient {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, options: { NX: true; EX: number }): Promise<string | null | boolean>;
+}
+
+export interface RedisRefreshTokenClient {
+  get(key: string): Promise<string | null>;
+  eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown>;
+}
+
 export interface RateLimitRule {
   /** Fixed-window duration in milliseconds. */
   windowMs?: number;
@@ -55,6 +65,10 @@ export type RateLimitRoute =
   | "requestOtp"
   | "verifyOtp"
   | "verifyMagicLink"
+  | "mfaEnroll"
+  | "mfaEnable"
+  | "mfaVerify"
+  | "mfaDisable"
   | "refresh"
   | "revokeSession"
   | "revokeAllSessions"
@@ -65,7 +79,13 @@ export type RateLimitRoute =
   | "googleStart"
   | "googleCallback"
   | "githubStart"
-  | "githubCallback";
+  | "githubCallback"
+  | "passkeyRegisterOptions"
+  | "passkeyRegisterVerify"
+  | "passkeyAuthenticationOptions"
+  | "passkeyAuthenticationVerify"
+  | "passkeyList"
+  | "passkeyDelete";
 
 export type RateLimitConfig = false | Partial<Record<RateLimitRoute, RateLimitRule | false>>;
 
@@ -210,6 +230,97 @@ export interface OAuthStateStore {
   consume(state: string): boolean | Promise<boolean>;
 }
 
+export interface PasskeyChallengeRecord {
+  purpose: "registration" | "authentication";
+  userId?: string;
+  email?: string;
+  expiresAt: number;
+}
+
+export interface PasskeyChallengeStore {
+  put(challenge: string, record: PasskeyChallengeRecord): void | Promise<void>;
+  /** Atomically consume a matching, unexpired challenge once. */
+  consume(
+    challenge: string,
+    purpose: PasskeyChallengeRecord["purpose"]
+  ): PasskeyChallengeRecord | null | Promise<PasskeyChallengeRecord | null>;
+}
+
+export interface PasskeyCredentialRecord {
+  id: string;
+  userId: string;
+  userHandle: string;
+  email: string;
+  publicKey: Uint8Array;
+  counter: number;
+  transports: string[];
+  deviceType: string;
+  backedUp: boolean;
+  createdAt: number;
+}
+
+export interface PasskeySummary {
+  id: string;
+  createdAt: number;
+  deviceType: string;
+  backedUp: boolean;
+  transports: string[];
+}
+
+export interface PasskeyStore {
+  getUserHandle(userId: string): string | Promise<string>;
+  create(credential: PasskeyCredentialRecord): void | Promise<void>;
+  getByCredentialId(credentialId: string): PasskeyCredentialRecord | null | Promise<PasskeyCredentialRecord | null>;
+  listByUserId(userId: string): PasskeySummary[] | Promise<PasskeySummary[]>;
+  updateCounter(
+    credentialId: string,
+    expectedCounter: number,
+    newCounter: number,
+    deviceType: string,
+    backedUp: boolean
+  ): boolean | Promise<boolean>;
+  deleteByCredentialId(credentialId: string, userId: string): boolean | Promise<boolean>;
+}
+
+export interface PasskeyOptions {
+  /** Human-readable relying-party name displayed by the authenticator. */
+  rpName: string;
+  /** Relying-party domain, such as "example.com" or "localhost". */
+  rpID: string;
+  /** Exact allowed application origins, such as ["https://example.com"]. */
+  origins: string[];
+  /** Challenge expiry in seconds. Must be between 30 and 600. @default 300 */
+  challengeTtlSeconds?: number;
+}
+
+export interface MfaRecord {
+  enabled: boolean;
+  pending?: { secret: string; expiresAt: number };
+  secret?: string;
+  lastTotpCounter?: number;
+  recoveryCodeHashes: string[];
+}
+
+export interface MfaStore {
+  get(userId: string): MfaRecord | null | Promise<MfaRecord | null>;
+  setPending(userId: string, pending: { secret: string; expiresAt: number }): boolean | Promise<boolean>;
+  activate(userId: string, expectedSecret: string, lastTotpCounter: number, recoveryCodeHashes: string[]): boolean | Promise<boolean>;
+  /** Atomically accept the TOTP counter only if it exceeds the stored counter. */
+  consumeTotpCounter(userId: string, counter: number): boolean | Promise<boolean>;
+  /** Atomically remove and accept a recovery-code hash at most once. */
+  consumeRecoveryCode(userId: string, recoveryCodeHash: string): boolean | Promise<boolean>;
+  disable(userId: string): boolean | void | Promise<boolean | void>;
+}
+
+export class MemoryMfaStore implements MfaStore {
+  get(userId: string): Promise<MfaRecord | null>;
+  setPending(userId: string, pending: { secret: string; expiresAt: number }): Promise<boolean>;
+  activate(userId: string, expectedSecret: string, lastTotpCounter: number, recoveryCodeHashes: string[]): Promise<boolean>;
+  consumeTotpCounter(userId: string, counter: number): Promise<boolean>;
+  consumeRecoveryCode(userId: string, recoveryCodeHash: string): Promise<boolean>;
+  disable(userId: string): Promise<boolean>;
+}
+
 export function prismaAdapter<T extends object>(
   prisma: T,
   options?: {
@@ -249,6 +360,26 @@ export class MemoryRateLimitStore implements RateLimitStore {
 export class RedisRateLimitStore implements RateLimitStore {
   constructor(client: RedisRateLimitClient, options?: { keyPrefix?: string });
   increment(key: string, windowMs: number): Promise<number>;
+}
+
+export class RedisDpopReplayStore implements DpopReplayStore {
+  constructor(client: RedisDpopReplayClient, options?: { keyPrefix?: string });
+  record(jti: string, ttlSeconds?: number): Promise<boolean>;
+  isUsed(jti: string): Promise<boolean>;
+}
+
+export class RedisRefreshTokenStore implements RefreshTokenStore {
+  constructor(client: RedisRefreshTokenClient, options?: { keyPrefix?: string });
+  create(tokenHash: string, record: RefreshTokenRecord): Promise<void>;
+  rotate(
+    tokenHash: string,
+    replacementHash: string,
+    replacement: { expiresAt: number }
+  ): Promise<RefreshTokenRotationResult>;
+  revoke(tokenHash: string): Promise<boolean>;
+  revokeFamily(familyId: string): Promise<void>;
+  revokeAll(userId: string): Promise<void>;
+  isFamilyActive(familyId: string): Promise<boolean>;
 }
 
 export interface DevAuthConfigOptions {
@@ -393,6 +524,18 @@ export interface DevAuthConfigOptions {
   oauthStateStore?: OAuthStateStore;
 
   /**
+   * Enable WebAuthn passkey registration and authentication. Requires explicit,
+   * durable passkeyStore and passkeyChallengeStore implementations.
+   */
+  passkeys?: false | PasskeyOptions;
+
+  /** Persistent passkey credential and user-handle store. */
+  passkeyStore?: PasskeyStore;
+
+  /** Persistent store that atomically consumes each passkey challenge once. */
+  passkeyChallengeStore?: PasskeyChallengeStore;
+
+  /**
    * Enable Magic Link click-to-login authentication alongside 6-digit OTPs.
    * @default false
    */
@@ -442,16 +585,63 @@ export interface DevAuthConfigOptions {
    * running multiple application instances.
    */
   rateLimitStore?: RateLimitStore;
+
+  /**
+   * DPoP (RFC 9449 Demonstrating Proof-of-Possession) token binding configuration.
+   * Enables cryptographic binding of access tokens to client ECDSA P-256 keys.
+   */
+  dpop?: boolean | "optional" | "required" | {
+    mode?: "optional" | "required" | "disabled";
+    maxClockSkewSeconds?: number;
+    enforceNonce?: boolean;
+  };
+
+  /**
+   * Atomic replay protection store for single-use DPoP proof JTIs.
+   * Required when DPoP is enabled. Use shared storage across server instances.
+   */
+  dpopReplayStore?: DpopReplayStore;
+
+  /** Server nonce for freshness enforcement */
+  dpopNonce?: string;
+
+  /** Maximum allowable clock skew in seconds (default: 60) */
+  dpopMaxClockSkewSeconds?: number;
+  /** Store MFA enrollments; persistent adapters must encrypt TOTP secrets at rest. */
+  mfaStore?: MfaStore;
+  /** Issuer displayed by authenticator apps. @default "DevAuthKit" */
+  mfaIssuer?: string;
+  /** Step-up token lifetime in seconds. @default 300 */
+  mfaStepUpExpiresInSeconds?: number;
+}
+
+export interface DpopReplayStore {
+  /** Atomically claim a proof JTI; return false if it is already active. */
+  record(jti: string, ttlSeconds?: number): boolean | Promise<boolean>;
+  isUsed(jti: string): boolean | Promise<boolean>;
+  cleanup?(): void | Promise<void>;
+}
+
+export class MemoryDpopReplayStore implements DpopReplayStore {
+  record(jti: string, ttlSeconds?: number): Promise<boolean>;
+  isUsed(jti: string): Promise<boolean>;
+  cleanup(): void;
+  clear(): void;
 }
 
 export interface AuthenticatedUser {
   email: string;
   id?: string | number;
+  cnf?: { jkt: string };
   [key: string]: any;
 }
 
 export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
+  dpop?: {
+    jkt: string;
+    payload: Record<string, any>;
+  };
 }
 
 export type AuthMiddleware = (
@@ -473,10 +663,17 @@ export function requireRole(
 ): AuthMiddleware;
 
 export const requireAuth: AuthMiddleware;
+/** Require an authenticated request with a valid short-lived MFA step-up token. */
+export const requireMfa: AuthMiddleware;
+export const requireDPoP: AuthMiddleware;
+export const checkConfig: (options?: DevAuthConfigOptions) => ConfigCheckResult;
 
 export interface DevAuthKitInstance {
   (app: Application, options?: DevAuthConfigOptions): Application;
+  checkConfig(options?: DevAuthConfigOptions): ConfigCheckResult;
   requireAuth: AuthMiddleware;
+  requireMfa: AuthMiddleware;
+  requireDPoP: AuthMiddleware;
   requireRole: typeof requireRole;
   devAuthKit: DevAuthKitInstance;
   config: {
@@ -488,11 +685,30 @@ export interface DevAuthKitInstance {
   drizzleAdapter: typeof drizzleAdapter;
   mongooseAdapter: typeof mongooseAdapter;
   MemoryRefreshTokenStore: typeof MemoryRefreshTokenStore;
+  MemoryMfaStore: typeof MemoryMfaStore;
+  RedisRefreshTokenStore: typeof RedisRefreshTokenStore;
   MemoryRateLimitStore: typeof MemoryRateLimitStore;
   RedisRateLimitStore: typeof RedisRateLimitStore;
+  RedisDpopReplayStore: typeof RedisDpopReplayStore;
+  MemoryDpopReplayStore: typeof MemoryDpopReplayStore;
+  dpop: any;
+}
+
+export interface ConfigCheckIssue {
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+  fix: string;
+}
+
+export interface ConfigCheckResult {
+  valid: boolean;
+  errors: number;
+  warnings: number;
+  issues: ConfigCheckIssue[];
 }
 
 declare const devAuthKit: DevAuthKitInstance;
 
 export default devAuthKit;
-export { devAuthKit };
+export { devAuthKit, MemoryDpopReplayStore, checkConfig };

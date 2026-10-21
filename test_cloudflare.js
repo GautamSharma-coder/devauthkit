@@ -9,6 +9,8 @@ const {
 const { CloudflareD1RefreshTokenStore } = require("./server/stores/cloudflareD1RefreshTokenStore");
 const { CloudflareD1OAuthStateStore } = require("./server/stores/cloudflareD1OAuthStateStore");
 const { CloudflareD1CounterStore } = require("./server/stores/cloudflareD1CounterStore");
+const { CloudflareD1PasskeyStore } = require("./server/stores/cloudflareD1PasskeyStore");
+const { CloudflareD1DpopReplayStore } = require("./server/stores/cloudflareD1DpopReplayStore");
 const { createAuthRouter } = require("./server/hono");
 
 async function run() {
@@ -29,6 +31,7 @@ async function run() {
     const magicLinkStore = new CloudflareKvMagicLinkStore(kv);
     const refreshTokenStore = new CloudflareD1RefreshTokenStore(database);
     const oauthStateStore = new CloudflareD1OAuthStateStore(database);
+    const passkeyStore = new CloudflareD1PasskeyStore(database);
 
     const createdAt = Date.now();
     await otpStore.set("store@example.com", { otp: "123456", attempts: 0, createdAt });
@@ -63,6 +66,7 @@ async function run() {
 
     await refreshTokenStore.createTables();
     await oauthStateStore.createTables();
+    await passkeyStore.createTables();
     await oauthStateStore.put("single-use-state", Date.now() + 60_000);
     assert.equal(await oauthStateStore.consume("single-use-state"), true);
     assert.equal(await oauthStateStore.consume("single-use-state"), false);
@@ -72,6 +76,47 @@ async function run() {
       oauthStateStore.consume("racing-state")
     ]);
     assert.equal(concurrentStateConsumes.filter(Boolean).length, 1);
+    assert.equal(await passkeyStore.getUserHandle("passkey-user"), await passkeyStore.getUserHandle("passkey-user"));
+    await passkeyStore.put("passkey-single-use", {
+      purpose: "authentication",
+      email: "passkey@example.com",
+      expiresAt: Date.now() + 60_000
+    });
+    const challengeConsumes = await Promise.all([
+      passkeyStore.consume("passkey-single-use", "authentication"),
+      passkeyStore.consume("passkey-single-use", "authentication")
+    ]);
+    assert.equal(challengeConsumes.filter(Boolean).length, 1);
+    assert.equal(await passkeyStore.consume("passkey-single-use", "authentication"), null);
+    await passkeyStore.put("passkey-expired", {
+      purpose: "authentication",
+      expiresAt: Date.now() + 5
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(await passkeyStore.consume("passkey-expired", "authentication"), null);
+    const passkeyUserHandle = await passkeyStore.getUserHandle("passkey-user");
+    await passkeyStore.create({
+      id: "credential-one",
+      userId: "passkey-user",
+      userHandle: passkeyUserHandle,
+      email: "passkey@example.com",
+      publicKey: new Uint8Array([1, 2, 3]),
+      counter: 1,
+      transports: ["internal"],
+      deviceType: "singleDevice",
+      backedUp: false,
+      createdAt: Date.now()
+    });
+    assert.equal((await passkeyStore.getByCredentialId("credential-one")).counter, 1);
+    assert.equal((await passkeyStore.listByUserId("passkey-user"))[0].id, "credential-one");
+    assert.equal(await passkeyStore.updateCounter("credential-one", 1, 2, "singleDevice", false), true);
+    const counterRaces = await Promise.all([
+      passkeyStore.updateCounter("credential-one", 2, 3, "singleDevice", false),
+      passkeyStore.updateCounter("credential-one", 2, 3, "singleDevice", false)
+    ]);
+    assert.equal(counterRaces.filter(Boolean).length, 1);
+    assert.equal(await passkeyStore.deleteByCredentialId("credential-one", "another-user"), false);
+    assert.equal(await passkeyStore.deleteByCredentialId("credential-one", "passkey-user"), true);
     await refreshTokenStore.create("refresh-one", {
       familyId: "family-one",
       userId: "user-one",
@@ -116,6 +161,13 @@ async function run() {
       magicLinkStore,
       refreshTokenStore,
       oauthStateStore,
+      passkeys: {
+        rpName: "DevAuthKit Test",
+        rpID: "example.com",
+        origins: ["https://example.com"]
+      },
+      passkeyStore,
+      passkeyChallengeStore: passkeyStore,
       refreshTokens: true,
       github: {
         clientId: "github-client-id",
@@ -164,6 +216,50 @@ async function run() {
     assert.equal(session.refreshEnabled, true);
     assert.match(verifyOtp.headers.get("set-cookie"), /devauth_token=/);
     assert.match(verifyOtp.headers.get("set-cookie"), /devauth_token_refresh=/);
+
+    const registrationOptionsResponse = await app.request("/auth/passkeys/register/options", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.token}`,
+        Origin: "https://example.com",
+        "Content-Type": "application/json"
+      },
+      body: "{}"
+    });
+    assert.equal(registrationOptionsResponse.status, 200);
+    const registrationOptions = await registrationOptionsResponse.json();
+    assert.equal(registrationOptions.rp.id, "example.com");
+    assert.equal(registrationOptions.authenticatorSelection.residentKey, "required");
+    assert.ok(await passkeyStore.consume(registrationOptions.challenge, "registration"));
+
+    const crossOriginPasskeyEnrollment = await app.request("/auth/passkeys/register/options", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.token}`,
+        Origin: "https://attacker.example",
+        "Content-Type": "application/json"
+      },
+      body: "{}"
+    });
+    assert.equal(crossOriginPasskeyEnrollment.status, 403);
+
+    const authenticationOptionsResponse = await app.request("/auth/passkeys/authenticate/options", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "hono@example.com" })
+    });
+    assert.equal(authenticationOptionsResponse.status, 200);
+    const authenticationOptions = await authenticationOptionsResponse.json();
+    assert.ok(authenticationOptions.challenge);
+    assert.equal(authenticationOptions.allowCredentials, undefined);
+    assert.ok(await passkeyStore.consume(authenticationOptions.challenge, "authentication"));
+
+    const unknownPasskey = await app.request("/auth/passkeys/authenticate/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: { id: "not-a-credential" } })
+    });
+    assert.equal(unknownPasskey.status, 401);
 
     const profile = await app.request("/auth/me", {
       headers: { Authorization: `Bearer ${session.token}` }
@@ -248,6 +344,22 @@ async function run() {
     );
     assert.equal(customOAuthReplay.status, 400);
     assert.match((await customOAuthReplay.json()).error, /already-used/);
+
+    // CloudflareD1DpopReplayStore verification
+    const dpopReplayStore = new CloudflareD1DpopReplayStore(database);
+    await dpopReplayStore.createTables();
+    assert.equal(await dpopReplayStore.record("dpop-jti-1", 60), true);
+    assert.equal(await dpopReplayStore.isUsed("dpop-jti-1"), true);
+    // Replay attempt must return false
+    assert.equal(await dpopReplayStore.record("dpop-jti-1", 60), false);
+    // Distinct JTI must succeed
+    assert.equal(await dpopReplayStore.record("dpop-jti-2", 60), true);
+    assert.equal(await dpopReplayStore.isUsed("dpop-jti-2"), true);
+    assert.equal(await dpopReplayStore.isUsed("non-existent-jti"), false);
+    const concurrentDpopClaims = await Promise.all(
+      Array.from({ length: 10 }, () => dpopReplayStore.record("dpop-jti-race", 60))
+    );
+    assert.equal(concurrentDpopClaims.filter(Boolean).length, 1);
 
     console.log("Cloudflare KV, D1, and Hono integration tests passed.");
   } finally {

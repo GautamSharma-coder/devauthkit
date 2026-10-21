@@ -11,6 +11,7 @@ export interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
   isAuthenticated: boolean;
+  isDPoPBound: boolean;
   isLoading: boolean;
   client: DevAuthClient;
   sendOTP: (email: string) => Promise<SendOTPResponse>;

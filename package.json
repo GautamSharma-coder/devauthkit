@@ -1,6 +1,6 @@
 {
   "name": "devauthkit",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "A plug-and-play authentication service for developers",
   "main": "index.js",
   "types": "./index.d.ts",
@@ -45,6 +45,22 @@
       "types": "./server/stores/cloudflareD1CounterStore.d.ts",
       "default": "./server/stores/cloudflareD1CounterStore.js"
     },
+    "./stores/cloudflare-d1-passkeys": {
+      "types": "./server/stores/cloudflareD1PasskeyStore.d.ts",
+      "default": "./server/stores/cloudflareD1PasskeyStore.js"
+    },
+    "./stores/cloudflare-d1-dpop-replay": {
+      "types": "./server/stores/cloudflareD1DpopReplayStore.d.ts",
+      "default": "./server/stores/cloudflareD1DpopReplayStore.js"
+    },
+    "./stores/redis-dpop-replay": {
+      "types": "./server/stores/redisDpopReplayStore.d.ts",
+      "default": "./server/stores/redisDpopReplayStore.js"
+    },
+    "./stores/redis-refresh-tokens": {
+      "types": "./server/stores/redisRefreshTokenStore.d.ts",
+      "default": "./server/stores/redisRefreshTokenStore.js"
+    },
     "./react": {
       "types": "./client/react/index.d.ts",
       "default": "./client/react/index.js"
@@ -73,7 +89,7 @@
   "scripts": {
     "start": "node example.js",
     "dev": "nodemon example.js",
-    "test": "node test_auth.js && node test_cloudflare.js",
+    "test": "node test_auth.js && node test_redis_refresh_token_store.js && node test_mfa.js && node test_passkeys.js && node test_cloudflare.js && node test_dpop.js",
     "prepublishOnly": "npm test"
   },
   "repository": {
@@ -94,12 +110,15 @@
     "session",
     "email",
     "otp",
+    "passkeys",
+    "webauthn",
     "passwordless",
     "sdk"
   ],
   "author": "Gautam Sharma",
   "license": "MIT",
   "dependencies": {
+    "@simplewebauthn/server": "^14.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",

@@ -28,6 +28,7 @@
 | **Zero-Setup Dev Mode** | ✅ **Console OTPs** | ❌ Requires Cloud Account | ❌ | ❌ |
 | **Email Providers** | **Resend + SMTP + Custom** | Vendor Cloud | Nodemailer / Custom | Manual |
 | **Dual/Triple Strategy** | **Bearer + httpOnly Cookie + Session** | Proprietary SDK | Session / JWT | Strategy plugins |
+| **Token Theft Defense (DPoP)** | 🛡️ **RFC 9449 Key Binding** | ❌ Bearer only | ❌ Bearer only | ❌ Bearer only |
 | **Database Adapters** | **Prisma + Drizzle + Mongoose** | Vendor Cloud | Adapters required | Manual DB glue |
 | **Frontend Integration** | ✅ **Client SDK + React Hooks** | Proprietary Components | Next.js / React only | ❌ None |
 
@@ -35,6 +36,7 @@
 
 ## ✨ Features
 
+- 🛡️ **DPoP Token Theft Defense (RFC 9449)**: Cryptographically binds access tokens to client ECDSA P-256 public keys via `cnf.jkt` thumbprints, instantly neutralizing malware/XSS token theft, replay attacks, and session hijacking.
 - 🔑 **Passwordless Email OTP**: Secure 6-digit codes generated with Node's native `crypto.randomInt`.
 - 🔗 **1-Click Magic Links**: Secure email verification links alongside 6-digit OTPs with single-use token invalidation.
 - 📘 **100% TypeScript Native**: Full type definitions included (`index.d.ts`, `client/index.d.ts`, and adapter `.d.ts` files).
@@ -93,6 +95,47 @@ app.listen(3000, () => {
   console.log("Server running on http://localhost:3000");
 });
 ```
+
+### Diagnose configuration issues
+
+Run the configuration doctor before starting the server. It reports setup errors and production-readiness warnings with suggested fixes, without changing the active configuration or exposing secret values:
+
+```javascript
+const report = devAuthKit.checkConfig({
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET,
+  dpop: true,
+  dpopReplayStore
+});
+
+for (const issue of report.issues) {
+  console.log(`[${issue.severity}] ${issue.code}: ${issue.message}\n  Fix: ${issue.fix}`);
+}
+if (!report.valid) process.exitCode = 1;
+```
+
+Call `checkConfig()` without options to inspect the currently configured options. A valid report can still contain warnings; address them before deploying if they apply to your setup.
+
+### TOTP MFA and step-up protection
+
+Configure an MFA store and use the authenticated enrollment endpoints. The development memory store is not durable; production adapters must encrypt TOTP secrets at rest and atomically consume TOTP counters and recovery-code hashes:
+
+```javascript
+const devAuthKit = require("devauthkit");
+
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET,
+  mfaIssuer: "Example App",
+  mfaStore: new devAuthKit.MemoryMfaStore() // Development only
+});
+
+app.post("/api/billing/change", devAuthKit.requireMfa, changeBillingDetails);
+```
+
+After authenticating, call `POST /auth/mfa/enroll` to receive an `otpauth://` URL and secret, add it to an authenticator app, then call `POST /auth/mfa/enable` with `{ "code": "123456" }`. Save the returned recovery codes securely; they are shown only once. To step up for a protected action, call `POST /auth/mfa/verify` with an authenticator or recovery code, then send the returned `mfaToken` in the `X-MFA-Token` header to routes using `requireMfa`. Step-up tokens expire after five minutes by default. Disable MFA with `POST /auth/mfa/disable` while sending that header.
+
+MFA is opt-in and applies to routes where you add `requireMfa`; it does not change the passwordless login flow. `GET /auth/mfa` reports enrollment status. Enrollment and disable requests require a configured same-origin `Origin` when using cookie authentication.
 
 ### Persistent users with Prisma
 
@@ -308,7 +351,7 @@ The browser sends the refresh cookie to `POST /auth/refresh`; the endpoint consu
 
 For convenience, the client SDK automatically calls the refresh endpoint once after an authenticated request gets a 401 (after OTP login has indicated refresh support). The refresh token itself is never returned in JSON or exposed to JavaScript. Refresh-token rotation and access-token revocation require the store's `rotate` operation to be atomic.
 
-Refresh storage defaults to process memory for local development. This is not suitable for multiple app instances and is cleared on restart. For production, pass a persistent `refreshTokenStore` implementing `create`, atomic `rotate`, `revoke`, `revokeFamily`, `revokeAll`, and `isFamilyActive`; the last method is checked on each request using a refresh-enabled JWT. Keep this store shared across application instances.
+Refresh storage defaults to process memory for local development. This is not suitable for multiple app instances and is cleared on restart. For production, pass a persistent `refreshTokenStore` implementing `create`, atomic `rotate`, `revoke`, `revokeFamily`, `revokeAll`, and `isFamilyActive`; the last method is checked on each request using a refresh-enabled JWT. Use `RedisRefreshTokenStore` or `CloudflareD1RefreshTokenStore` to share refresh state across application instances.
 
 ### Authentication rate limits
 
@@ -360,16 +403,18 @@ export const users = sqliteTable("users", {
 });
 ```
 
-Bind a D1 database and KV namespace in your Wrangler configuration. Run your user-table migration and create the refresh-token, OAuth-state, and atomic-counter tables once as part of deployment, not from a request handler:
+Bind a D1 database and KV namespace in your Wrangler configuration. Run your user-table migration and create the refresh-token, OAuth-state, atomic-counter, and (if enabled) passkey tables once as part of deployment, not from a request handler:
 
 ```typescript
 import { CloudflareD1RefreshTokenStore } from "devauthkit/stores/cloudflare-d1";
 import { CloudflareD1OAuthStateStore } from "devauthkit/stores/cloudflare-d1-oauth-state";
 import { CloudflareD1CounterStore } from "devauthkit/stores/cloudflare-d1-counter";
+import { CloudflareD1PasskeyStore } from "devauthkit/stores/cloudflare-d1-passkeys";
 
 await new CloudflareD1RefreshTokenStore(env.DB).createTables();
 await new CloudflareD1OAuthStateStore(env.DB).createTables();
 await new CloudflareD1CounterStore(env.DB).createTables();
+await new CloudflareD1PasskeyStore(env.DB).createTables();
 ```
 
 Mount the Hono router and construct its stores from Worker bindings:
@@ -388,6 +433,7 @@ import {
 import { CloudflareD1RefreshTokenStore } from "devauthkit/stores/cloudflare-d1";
 import { CloudflareD1CounterStore } from "devauthkit/stores/cloudflare-d1-counter";
 import { CloudflareD1OAuthStateStore } from "devauthkit/stores/cloudflare-d1-oauth-state";
+import { CloudflareD1PasskeyStore } from "devauthkit/stores/cloudflare-d1-passkeys";
 import { users } from "./schema";
 
 let workerApp;
@@ -397,6 +443,7 @@ export default {
     if (!workerApp) {
       const app = new Hono();
       const counterStore = new CloudflareD1CounterStore(env.DB);
+      const passkeyStore = new CloudflareD1PasskeyStore(env.DB);
       app.route("/", createAuthRouter({
         jwtSecret: env.JWT_SECRET,
         sessionSecret: env.JWT_SECRET,
@@ -411,7 +458,14 @@ export default {
         userAdapter: drizzleAdapter(drizzle(env.DB), { table: users, eq }),
         refreshTokens: true,
         refreshTokenStore: new CloudflareD1RefreshTokenStore(env.DB),
-        oauthStateStore: new CloudflareD1OAuthStateStore(env.DB)
+        oauthStateStore: new CloudflareD1OAuthStateStore(env.DB),
+        passkeys: {
+          rpName: "Example App",
+          rpID: env.WEBAUTHN_RP_ID,
+          origins: [env.WEBAUTHN_ORIGIN]
+        },
+        passkeyStore,
+        passkeyChallengeStore: passkeyStore
       }));
       workerApp = app;
     }
@@ -420,9 +474,141 @@ export default {
 };
 ```
 
-This mounts the same OTP, magic-link, Google/GitHub OAuth, refresh, logout, session-revocation, and profile endpoints under `/auth`. `createAuthRouter` requires an explicit JWT secret; production setup also requires persistent OTP storage, a Worker-compatible mailer (for example, Resend), and an atomic `oauthStateStore` whenever OAuth is configured. OAuth PKCE state is protected in a short-lived, signed, `httpOnly` cookie and consumed once through D1. KV stores require the D1-backed atomic `counterStore` for OTP attempts and rate limits; they do not silently fall back to racy KV read-modify-write counters. The Hono `requireAuth()` middleware is available for application routes.
+This mounts OTP, magic-link, OAuth, refresh, profile, and passkey endpoints under `/auth`. Passkeys are enabled only when `passkeys`, `passkeyStore`, and `passkeyChallengeStore` are explicitly configured. Set `WEBAUTHN_RP_ID` to the relying-party domain (for example, `example.com`) and `WEBAUTHN_ORIGIN` to an exact allowed origin (for example, `https://example.com`). The D1 passkey store may implement both store interfaces; its tables must be created as part of deployment, not from a request handler. Passkey challenges are hashed and consumed atomically, credentials are scoped to a stable user handle, and signature counters use conditional D1 updates. Do not use process-memory stores for production passkey state.
+
+Passkey enrollment requires an authenticated user. The client posts the returned options to `navigator.credentials.create()` (after decoding WebAuthn base64url fields into buffers), then posts the serialized credential to the verification endpoint. Login uses the public authentication-options and verification endpoints with `navigator.credentials.get()`. Verification requires user verification and checks the configured origins and RP ID using `@simplewebauthn/server`.
 
 **Storage consistency matters:** Cloudflare KV is eventually consistent and does not provide atomic counters. `CloudflareKvOtpStore` and `CloudflareKvRateLimitStore` therefore require a strongly consistent `counterStore` such as `CloudflareD1CounterStore`; counter-store failures return an error instead of allowing authentication attempts or rate-limited requests. Refresh-token rotation uses D1 `batch()` transactions and conditional updates, rather than KV, to preserve the package's atomic rotation and replay-detection contract. Do not use the in-memory stores in a production Worker.
+
+---
+
+## 🛡️ DPoP: Proof-of-Possession Token Binding (RFC 9449)
+
+In standard OAuth 2.0 / JWT architectures, access tokens are **Bearer tokens**: anyone who intercepts or extracts the token (via infostealer malware, malicious browser extensions, XSS, man-in-the-middle, or server access logs) can impersonate the user until expiry.
+
+**DPoP (Demonstrating Proof-of-Possession at the Application Layer — [RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449))** eliminates token theft. 
+
+### How it works:
+1. **Client Key Generation**: The client SDK generates a private ECDSA P-256 (`ES256`) keypair stored in client memory. The private key never leaves the client device.
+2. **Cryptographic Binding**: During login (`verifyOTP`, `verifyMagicLink`, or `refresh`), the client creates a signed DPoP proof containing its public JWK. The server embeds the RFC 7638 SHA-256 thumbprint of that key into the JWT (`cnf.jkt`).
+3. **Proof Verification**: On every API request, the client computes an ephemeral single-use signature containing the HTTP method (`htm`), target URI (`htu`), timestamp (`iat`), and the SHA-256 hash of the access token (`ath`).
+4. **Zero-Trust Enforcement**: The server's `requireAuth` or `requireDPoP` middleware rejects any request where:
+   - The token is presented without a matching DPoP signature.
+   - An attacker attempts to sign with their own keypair (key binding mismatch).
+   - A previous proof is replayed (single-use `jti` replay store).
+   - The proof has expired or target URI/method mismatches.
+
+### 1. Backend Setup (Express.js)
+
+```javascript
+const express = require("express");
+const devAuthKit = require("devauthkit");
+
+const app = express();
+const dpopReplayStore = new devAuthKit.MemoryDpopReplayStore(); // Single-process development only
+
+// In production, configure an atomic shared replay store accessible to every instance.
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET,
+  dpop: true, // Enables RFC 9449 DPoP verification and token binding
+  dpopReplayStore
+});
+
+const { requireAuth, requireDPoP } = devAuthKit;
+
+// requireAuth supports both standard tokens and cryptographically enforces DPoP when bound:
+app.get("/api/dashboard", requireAuth, (req, res) => {
+  res.json({
+    user: req.user,
+    dpopBound: Boolean(req.dpop) // { jkt: "..." }
+  });
+});
+
+// requireDPoP strictly mandates a valid DPoP proof (ideal for financial transfers or settings changes):
+app.post("/api/sensitive-transfer", requireDPoP, (req, res) => {
+  res.json({ success: true });
+});
+```
+
+### 2. Backend Setup (Cloudflare Workers & Hono)
+
+```javascript
+import { Hono } from "hono";
+import { createAuthRouter, requireAuth, requireDPoP } from "devauthkit/hono";
+import { CloudflareD1DpopReplayStore } from "devauthkit/stores/cloudflare-d1-dpop-replay";
+
+export default {
+  async fetch(request, env) {
+    const app = new Hono();
+    const dpopReplayStore = new CloudflareD1DpopReplayStore(env.DB);
+
+    app.route("/", createAuthRouter({
+      jwtSecret: env.JWT_SECRET,
+      dpop: true,
+      dpopReplayStore
+    }));
+
+    app.get("/api/edge-data", requireAuth({ dpopReplayStore }), (c) => {
+      return c.json({ user: c.get("user"), dpop: c.get("dpop") });
+    });
+
+    return app.fetch(request, env);
+  }
+};
+```
+
+### 3. Frontend Client SDK (`DevAuthClient`)
+
+Enable DPoP with a single flag (`dpop: true`). The SDK transparently manages ECDSA P-256 keys, computes DPoP proofs, attaches `Authorization: DPoP <token>` and `DPoP: <proof>` headers, and handles server nonce challenges:
+
+```javascript
+import { DevAuthClient } from "devauthkit/client";
+
+const auth = new DevAuthClient({
+  apiUrl: "http://localhost:3000",
+  dpop: true // ✨ Activates RFC 9449 hardware-bound token protection
+});
+
+// 1. Send OTP
+await auth.sendOTP("user@example.com");
+
+// 2. Verify OTP - automatically signs DPoP proof and receives a cnf.jkt-bound token!
+await auth.verifyOTP("user@example.com", "123456");
+
+// 3. Authenticated calls automatically compute ath hash and single-use signature!
+const res = await auth.fetch("/api/dashboard");
+const data = await res.json();
+
+console.log("Is DPoP Bound?", auth.isDPoPBound()); // true
+```
+
+### 4. React & Next.js Hooks
+
+```jsx
+import { AuthProvider, useAuth } from "devauthkit/react";
+import { DevAuthClient } from "devauthkit/client";
+
+const client = new DevAuthClient({ dpop: true });
+
+function App() {
+  return (
+    <AuthProvider client={client}>
+      <Dashboard />
+    </AuthProvider>
+  );
+}
+
+function Dashboard() {
+  const { user, isDPoPBound } = useAuth();
+  return (
+    <div>
+      <h1>Welcome, {user?.email}</h1>
+      {isDPoPBound && <span className="badge">🛡️ Protected by DPoP Token Binding</span>}
+    </div>
+  );
+}
+```
 
 ---
 
@@ -495,6 +681,12 @@ By default, routes are mounted under `/auth`:
 | `POST` | `/auth/refresh` | Rotate the httpOnly refresh cookie and issue a new access token (when enabled). |
 | `POST` | `/auth/sessions/revoke` | Revoke the authenticated token family immediately. |
 | `POST` | `/auth/sessions/revoke-all` | Revoke all refresh sessions for the authenticated user. |
+| `POST` | `/auth/passkeys/register/options` | Generate passkey enrollment options (requires authentication; passkeys enabled). |
+| `POST` | `/auth/passkeys/register/verify` | Verify and save an enrollment credential (requires authentication; body: `{ "credential": ... }`). |
+| `POST` | `/auth/passkeys/authenticate/options` | Generate login options; optional body: `{ "email": "..." }`. |
+| `POST` | `/auth/passkeys/authenticate/verify` | Verify a passkey assertion and issue a login token (body: `{ "credential": ... }`). |
+| `GET` | `/auth/passkeys` | List passkeys for the authenticated user. |
+| `DELETE` | `/auth/passkeys/:credentialId` | Delete an owned passkey (requires authentication). |
 | `GET` | `/auth/google` | Start Google OAuth sign-in (when configured). |
 | `GET` | `/auth/google/callback` | Complete Google OAuth sign-in (when configured). |
 | `GET` | `/auth/github` | Start GitHub OAuth sign-in (when configured). |
@@ -534,10 +726,16 @@ Pass configuration options to `devAuthKit(app, options)`:
 | `magicLink` | `boolean` | `false` | Enable 1-click Magic Link email verification links alongside OTP. |
 | `magicLinkExpiryMinutes` | `number` | `15` | Magic link token validity in minutes. |
 | `magicLinkSuccessURL` | `string` | `undefined` | Optional browser redirect URL on successful magic link verification. |
+| `passkeys` | `PasskeyOptions` | Disabled | Enable WebAuthn with `rpName`, lowercase `rpID`, and exact allowed `origins`; challenge TTL defaults to 300 seconds. |
+| `passkeyStore` | `PasskeyStore` | None | Required durable credential and user-handle storage when passkeys are enabled. |
+| `passkeyChallengeStore` | `PasskeyChallengeStore` | None | Required durable store with atomic single-use challenge consumption. |
 | `refreshTokens` | `boolean \| RefreshTokenOptions` | `false` | Enable rotating httpOnly refresh cookies; access tokens default to 15 minutes and refresh tokens to 30 days. |
-| `refreshTokenStore` | `RefreshTokenStore` | In-memory store | Optional persistent token-family store. Its rotation must be atomic for replay protection. |
+| `refreshTokenStore` | `RefreshTokenStore` | In-memory store | Persistent token-family store. Its rotation must be atomic; use `RedisRefreshTokenStore` or `CloudflareD1RefreshTokenStore` for shared production storage. |
 | `rateLimit` | `RateLimitConfig` | Built-in route limits | Customize individual route windows/identity limits, disable one route with `false`, or disable all limits with `false`. |
 | `rateLimitStore` | `RateLimitStore` | In-memory store | Optional shared counter store; use `new devAuthKit.RedisRateLimitStore(redis)` for multiple instances. |
+| `dpop` | `boolean` | `false` | Enable RFC 9449 Demonstrating Proof-of-Possession (DPoP) key-binding and verification. |
+| `dpopReplayStore` | `DpopReplayStore` | None | Required when DPoP is enabled; `record` must atomically claim a single-use `jti`. Use `RedisDpopReplayStore` or another shared store across production instances; `MemoryDpopReplayStore` is single-process only. |
+| `dpopMaxSkewSeconds` | `number` | `60` | Maximum allowable clock skew (in seconds) for DPoP proof timestamps (`iat`). |
 | `debug` | `boolean` | `false` | Enable verbose internal logging. |
 
 ### Persistent storage with Redis
@@ -565,6 +763,10 @@ async function start() {
 
   devAuthKit(app, {
     otpStore: new devAuthKit.RedisOtpStore(redis),
+    refreshTokens: true,
+    refreshTokenStore: new devAuthKit.RedisRefreshTokenStore(redis),
+    dpop: true,
+    dpopReplayStore: new devAuthKit.RedisDpopReplayStore(redis),
     sessionStore: new ExpressRedisStore({ client: redis }),
     sessionSecret: process.env.SESSION_SECRET,
     jwtSecret: process.env.JWT_SECRET
@@ -580,6 +782,10 @@ start().catch((error) => {
 ```
 
 `RedisOtpStore` uses Redis' `get`, `set`, `del`, and atomic `incr` commands (compatible with the `redis` Node.js client). It stores OTP records and a separate attempt counter for 15 minutes by default. Customize its namespace or TTL with `new devAuthKit.RedisOtpStore(redis, { keyPrefix: "myapp:otp:", ttlSeconds: 900 })`. Custom OTP adapters must implement all four adapter methods; `recordAttempt` must increment attempts atomically when shared across multiple application instances.
+
+`RedisDpopReplayStore` uses Redis `SET` with `NX` and `EX` options to atomically accept each proof `jti` once until its TTL expires. It is compatible with the `redis` Node.js client and hashes JTIs before using them as Redis keys. Customize its namespace with `new devAuthKit.RedisDpopReplayStore(redis, { keyPrefix: "myapp:dpop:" })`.
+
+`RedisRefreshTokenStore` runs refresh creation, rotation, reuse detection, and family revocation in atomic Redis Lua scripts. It requires a Redis client with `get` and `eval` methods (compatible with node-redis v4+). All keys for one adapter use a shared Redis Cluster hash slot so multi-key scripts remain atomic; this adapter is best suited to a dedicated Redis instance or deployments where the refresh-store key-slot throughput is sufficient. Customize the namespace with `new devAuthKit.RedisRefreshTokenStore(redis, { keyPrefix: "myapp:refresh:" })`.
 
 ---
 
@@ -614,7 +820,16 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 
 ## 🔖 Version Changelog
 
-- **v1.5.0 (Latest)**:
+- **v1.6.0 (Latest)**:
+  - **DPoP (RFC 9449) Proof-of-Possession**: Built-in zero-trust application-layer key binding preventing token theft, infostealer exploits, and replay attacks across Express and Hono.
+  - Added `requireDPoP` middleware and DPoP-aware `requireAuth` (`cnf.jkt` validation).
+  - Added `CloudflareD1DpopReplayStore` and `RedisDpopReplayStore` replay protection caches.
+  - Added client-side ECDSA P-256 key management, automatic DPoP proof generation, and nonce challenge retry to `DevAuthClient({ dpop: true })`.
+  - Added `isDPoPBound` reactive session indicator in `devauthkit/react` `useAuth()`.
+  - Added WebAuthn passkey registration, email-bound and discoverable authentication, credential management, and D1 adapter (`CloudflareD1PasskeyStore`).
+  - Added Multi-Factor Authentication (MFA / TOTP) with recovery codes and step-up auth middleware (`requireMfa`).
+  - Added Configuration Doctor (`devAuthKit.checkConfig()`) for pre-flight diagnosis of environment and production security issues.
+- **v1.5.0**:
   - **Cloudflare Workers & Hono**: Added a Web Crypto-compatible Hono adapter and Worker-safe JWT, OTP, OAuth PKCE, and rate-limit hashing.
   - **Cloudflare KV stores**: Added OTP, magic-link, and rate-limit adapters with expiration support and documented eventual-consistency limitations.
   - **Cloudflare D1 refresh-token store**: Added atomic D1 rotation, replay detection, session revocation, and TypeScript D1 typing.

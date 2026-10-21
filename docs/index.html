@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevAuthKit — The Zero-Config Self-Hosted Auth Engine</title>
+  <meta name="description"
+    content="A lightweight, plug-and-play authentication toolkit for Node.js, Express, and Cloudflare Workers (Hono) with RFC 9449 DPoP token defense, Passkeys, and multi-database adapters." />
+  <meta name="keywords"
+    content="auth, authentication, express, hono, cloudflare workers, dpop, passkeys, webauthn, jwt, passwordless, email otp, magic link, prisma, drizzle" />
+
+  <!-- Open Graph / Social Sharing -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="DevAuthKit — The Zero-Config Self-Hosted Auth Engine" />
+  <meta property="og:description"
+    content="Plug-and-play passwordless email OTP, WebAuthn passkeys, RFC 9449 DPoP token theft defense, and multi-database adapters. 100% Free & Self-Hosted." />
+  <meta property="og:image" content="logo.png" />
+
+  <link rel="icon" type="image/png" href="logo.png" />
+
+  <!-- Modern Typography Preconnect -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body class="landing-page">
+
+  <!-- Top Sticky Header -->
+  <header class="site-header" id="siteHeader">
+    <div class="header-left">
+      <a href="index.html" class="brand-link">
+        <img src="logo.png" alt="DevAuthKit Logo" class="brand-logo" />
+        <span>DevAuthKit</span>
+        <span class="version-badge">v1.6.0</span>
+      </a>
+    </div>
+
+    <div class="header-center">
+      <ul class="landing-nav-links">
+        <li><a href="#features" class="landing-nav-link">Features</a></li>
+        <li><a href="#sandbox" class="landing-nav-link">Live Sandbox</a></li>
+        <li><a href="#code" class="landing-nav-link">Quickstart</a></li>
+        <li><a href="#comparison" class="landing-nav-link">Comparison</a></li>
+        <li><a href="docs.html" class="landing-nav-link" style="color: var(--text-white); font-weight: 600;">Docs ↗</a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="header-right">
+      <a href="docs.html" class="nav-btn nav-btn-primary">
+        <span>Get Started →</span>
+      </a>
+      <a href="https://www.npmjs.com/package/devauthkit" target="_blank" rel="noopener noreferrer"
+        class="nav-btn nav-btn-ghost">
+        <span>npm</span>
+      </a>
+      <a href="https://github.com/GautamSharma-coder/devauthkit" target="_blank" rel="noopener noreferrer"
+        class="nav-btn nav-btn-ghost">
+        <span>GitHub</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Landing Container -->
+  <main class="landing-main">
+
+    <!-- Hero Section -->
+    <section class="landing-hero">
+      <div class="hero-pill-badge">
+        <span class="live-indicator" style="display:inline-block; margin-right: 4px;"></span>
+        <span>DevAuthKit v1.6.0 Released</span>
+        <span>•</span>
+        <span>RFC 9449 DPoP &amp; Passkeys Ready</span>
+      </div>
+
+      <h1 class="landing-headline">
+        The Auth Engine You <br />
+        <span class="gradient-text">Actually Own.</span>
+      </h1>
+
+      <p class="landing-subtitle">
+        A plug-and-play, zero-config authentication toolkit for Node.js, Express, and Cloudflare Workers.
+        Hardware-bound RFC 9449 DPoP token security, WebAuthn passkeys, and multi-database adapters with zero cloud
+        fees.
+      </p>
+
+      <div class="landing-hero-actions">
+        <div class="quick-install-box">
+          <span>npm install devauthkit</span>
+          <button class="copy-install-btn" data-copy="npm install devauthkit">Copy</button>
+        </div>
+        <a href="docs.html" class="nav-btn nav-btn-primary" style="padding: 9px 18px; font-size: 0.88rem;">
+          Start Building Free →
+        </a>
+        <a href="#sandbox" class="nav-btn nav-btn-ghost" style="padding: 9px 18px; font-size: 0.88rem;">
+          Try Interactive Sandbox
+        </a>
+      </div>
+
+      <!-- Stats Strip -->
+      <div class="stats-strip">
+        <div class="stat-card">
+          <div class="stat-value">$0</div>
+          <div class="stat-label">Zero MAU Limits • MIT Free</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">&lt; 3m</div>
+          <div class="stat-label">Zero-Config Production Setup</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">RFC 9449</div>
+          <div class="stat-label">Hardware-Bound Token Security</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">100%</div>
+          <div class="stat-label">TypeScript & Edge Runtimes</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         Interactive Hero Sandbox
+         ==================================================================== -->
+    <section class="landing-section" id="sandbox" style="padding-top: 0;">
+      <div class="section-header-center">
+        <span class="section-tag">Interactive Preview</span>
+        <h2 class="section-main-title">Test The Security Engines In Real Time</h2>
+        <p class="section-main-desc">
+          DevAuthKit brings zero-trust token protection to your applications. Test the cryptographic handshakes right in
+          your browser.
+        </p>
+      </div>
+
+      <div class="sandbox-card">
+        <div class="sandbox-tabs">
+          <button class="sandbox-tab-btn active" data-sandbox-target="view-otp">
+            <span>Passwordless OTP</span>
+          </button>
+          <button class="sandbox-tab-btn" data-sandbox-target="view-dpop">
+            <span>RFC 9449 DPoP Binding</span>
+          </button>
+          <button class="sandbox-tab-btn" data-sandbox-target="view-passkey">
+            <span>WebAuthn Passkey</span>
+          </button>
+        </div>
+
+        <!-- View 1: OTP Simulator -->
+        <div class="sandbox-view active" id="view-otp">
+          <div class="sandbox-grid">
+            <div class="simulator-form">
+              <div class="form-group">
+                <label class="form-label" for="simOtpEmail">Target User Email</label>
+                <input type="email" id="simOtpEmail" class="form-input" value="alex@developer.io"
+                  placeholder="Enter your email" />
+              </div>
+              <button class="sim-btn sim-btn-primary" id="simSendOtpBtn">
+                <span>1. Dispatch OTP Code</span>
+              </button>
+              <div class="form-group" style="margin-top: 10px;">
+                <label class="form-label" for="simOtpCode">6-Digit Code</label>
+                <input type="text" id="simOtpCode" class="form-input" placeholder="Awaiting OTP..." maxlength="6" />
+              </div>
+              <button class="sim-btn sim-btn-secondary" id="simVerifyOtpBtn">
+                <span>2. Verify OTP & Issue Token</span>
+              </button>
+            </div>
+
+            <div class="simulator-console">
+              <div class="console-title">
+                <span>Server Console Output</span>
+                <span class="live-indicator"></span>
+              </div>
+              <div class="console-output" id="simOtpConsole">
+                Ready. Click "1. Dispatch OTP Code" to simulate zero-config dev mode email dispatch.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- View 2: DPoP Simulator -->
+        <div class="sandbox-view" id="view-dpop">
+          <div class="sandbox-grid">
+            <div class="simulator-form">
+              <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 14px; line-height: 1.5;">
+                Generates an ECDSA P-256 keypair in your browser's <code>window.crypto.subtle</code> memory, computes
+                the RFC 7638 SHA-256 thumbprint (<code>cnf.jkt</code>), and binds your access token directly to this
+                device.
+              </p>
+              <button class="sim-btn sim-btn-primary" id="simDpopGenBtn">
+                <span>Generate P-256 Key & Compute Binding</span>
+              </button>
+              <div class="callout" style="margin-top: 14px; padding: 12px 14px;">
+                <div class="callout-content" style="font-size: 0.82rem;">
+                  <strong>Token Theft Shield:</strong> Stolen tokens cannot be replayed without your device's private
+                  key.
+                </div>
+              </div>
+            </div>
+
+            <div class="simulator-console">
+              <div class="console-title">
+                <span>Cryptographic Proof Inspector</span>
+                <span class="live-indicator"></span>
+              </div>
+              <div class="console-output" id="simDpopConsole">
+                Click "Generate P-256 Key" to compute an RFC 7638 thumbprint in browser memory...
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- View 3: Passkey Simulator -->
+        <div class="sandbox-view" id="view-passkey">
+          <div class="sandbox-grid">
+            <div class="simulator-form">
+              <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 14px; line-height: 1.5;">
+                DevAuthKit integrates native WebAuthn support via <code>@simplewebauthn/server</code> and durable
+                Cloudflare D1 storage for Touch ID, Face ID, and Windows Hello.
+              </p>
+              <button class="sim-btn sim-btn-primary" id="simPasskeyTestBtn">
+                <span>Detect Platform Authenticator</span>
+              </button>
+            </div>
+
+            <div class="simulator-console">
+              <div class="console-title">
+                <span>WebAuthn Credential Inspector</span>
+                <span class="live-indicator"></span>
+              </div>
+              <div class="console-output" id="simPasskeyConsole">
+                Click "Detect Platform Authenticator" to inspect hardware biometric support...
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         Bento Grid Features Section
+         ==================================================================== -->
+    <section class="landing-section" id="features">
+      <div class="section-header-center">
+        <span class="section-tag">Architecture</span>
+        <h2 class="section-main-title">Built For Modern Engineering Teams</h2>
+        <p class="section-main-desc">
+          Everything required for production authentication, with zero proprietary lock-in.
+        </p>
+      </div>
+
+      <div class="bento-grid">
+
+        <!-- Bento Card 1: DPoP (Span 2) -->
+        <div class="bento-card bento-span-2">
+          <div class="bento-num">01 / REVOLUTIONARY SECURITY</div>
+          <h3 class="bento-title">RFC 9449 DPoP Token Theft Defense</h3>
+          <p class="bento-desc">
+            Standard Bearer tokens can be extracted via infostealer malware, malicious browser extensions, or proxy
+            logs. DevAuthKit binds tokens to client ECDSA P-256 public keys via <code>cnf.jkt</code> thumbprints,
+            instantly neutralizing token theft and replay attacks.
+          </p>
+          <div class="bento-preview">
+            <span style="color:#64748b;">// Sensitive API Route</span><br />
+            <span style="color:#ff79c6;">app.post</span>(<span style="color:#4ade80;">"/api/transfer"</span>, <span
+              style="color:#38bdf8;">devAuthKit.requireDPoP</span>, (req, res) =&gt; {<br />
+            &nbsp;&nbsp;res.<span style="color:#38bdf8;">json</span>({ <span style="color:#93c5fd;">authorized</span>:
+            <span style="color:#fbbf24;">true</span>, <span style="color:#93c5fd;">boundKey</span>: req.dpop.jkt
+            });<br />
+            });
+          </div>
+        </div>
+
+        <!-- Bento Card 2: Passkeys -->
+        <div class="bento-card">
+          <div class="bento-num">02 / BIOMETRICS</div>
+          <h3 class="bento-title">WebAuthn Passkeys</h3>
+          <p class="bento-desc">
+            Provide instant 1-touch passwordless login with Touch ID, Face ID, Windows Hello, and YubiKeys. Native
+            `@simplewebauthn` integration with durable Cloudflare D1 storage.
+          </p>
+          <div class="bento-preview">
+            <span style="color:#38bdf8;">devAuthKit</span>(app, {<br />
+            &nbsp;&nbsp;<span style="color:#93c5fd;">passkeys</span>: { <span style="color:#93c5fd;">rpID</span>: <span
+              style="color:#4ade80;">"myapp.com"</span> }<br />
+            });
+          </div>
+        </div>
+
+        <!-- Bento Card 3: Multi-Runtime -->
+        <div class="bento-card">
+          <div class="bento-num">03 / MULTI-RUNTIME</div>
+          <h3 class="bento-title">Node & Cloudflare Edge</h3>
+          <p class="bento-desc">
+            Run on traditional Express.js servers or deploy globally to Cloudflare Workers, Hono, and Bun with native
+            Web Crypto APIs.
+          </p>
+          <div class="bento-preview">
+            <span style="color:#ff79c6;">import</span> { createHonoAuth } <span style="color:#ff79c6;">from</span> <span
+              style="color:#4ade80;">"devauthkit/hono"</span>;
+          </div>
+        </div>
+
+        <!-- Bento Card 4: Databases -->
+        <div class="bento-card">
+          <div class="bento-num">04 / DATA SOVEREIGNTY</div>
+          <h3 class="bento-title">Database Freedom</h3>
+          <p class="bento-desc">
+            First-class adapters for Prisma, Drizzle ORM, Mongoose (MongoDB), and Cloudflare D1. Zero vendor database
+            locks.
+          </p>
+          <div class="bento-preview">
+            <span style="color:#93c5fd;">userAdapter</span>: <span style="color:#38bdf8;">prismaAdapter</span>(prisma)
+          </div>
+        </div>
+
+        <!-- Bento Card 5: Refresh Tokens (Span 2) -->
+        <div class="bento-card bento-span-2">
+          <div class="bento-num">05 / SESSION SECURITY</div>
+          <h3 class="bento-title">Rotating Refresh Tokens & Replay Defense</h3>
+          <p class="bento-desc">
+            Short-lived 15-minute access tokens paired with rotating 30-day httpOnly cookies. Includes automatic token
+            family tracking, immediate reuse detection, and multi-device session revocation endpoints
+            (`/auth/sessions/revoke-all`).
+          </p>
+          <div class="bento-preview">
+            <span style="color:#93c5fd;">refreshTokens</span>: { <span
+              style="color:#93c5fd;">accessTokenExpiresIn</span>: <span style="color:#4ade80;">"15m"</span>, <span
+              style="color:#93c5fd;">refreshTokenExpiresInDays</span>: <span style="color:#fbbf24;">30</span> }
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         Code Showcase Section
+         ==================================================================== -->
+    <section class="landing-section" id="code">
+      <div class="section-header-center">
+        <span class="section-tag">Developer Experience</span>
+        <h2 class="section-main-title">Backend Simplicity Meets Frontend Reactivity</h2>
+        <p class="section-main-desc">
+          Mount your authentication backend with one function call, then consume it cleanly in React with hooks.
+        </p>
+      </div>
+
+      <div class="code-window">
+        <div class="code-header">
+          <div class="code-header-left">
+            <div class="code-dots">
+              <span class="code-dot code-dot-red"></span>
+              <span class="code-dot code-dot-yellow"></span>
+              <span class="code-dot code-dot-green"></span>
+            </div>
+            <div class="code-tabs">
+              <button class="code-tab active" data-tab="express">server.js (Express)</button>
+              <button class="code-tab" data-tab="hono">worker.js (Cloudflare + Hono)</button>
+              <button class="code-tab" data-tab="react">App.jsx (React Client)</button>
+            </div>
+          </div>
+          <button class="code-copy-btn">Copy</button>
+        </div>
+
+        <!-- Express Code Block -->
+        <pre class="code-block code-block-item"
+          data-tab-content="express"><code><span class="tok-kw">const</span> express = <span class="tok-fn">require</span>(<span class="tok-str">"express"</span>);
+<span class="tok-kw">const</span> devAuthKit = <span class="tok-fn">require</span>(<span class="tok-str">"devauthkit"</span>);
+
+<span class="tok-kw">const</span> app = <span class="tok-fn">express</span>();
+
+<span class="tok-com">// Initialize DevAuthKit (Zero-config dev mode prints OTP to console)</span>
+<span class="tok-fn">devAuthKit</span>(app, {
+  <span class="tok-prop">jwtSecret</span>: process.env.JWT_SECRET || <span class="tok-str">"your-secret-key"</span>,
+  <span class="tok-prop">sessionSecret</span>: process.env.SESSION_SECRET || <span class="tok-str">"your-session-key"</span>,
+  <span class="tok-prop">corsOrigin</span>: [<span class="tok-str">"http://localhost:3000"</span>, <span class="tok-str">"http://localhost:5173"</span>],
+  <span class="tok-prop">devMode</span>: <span class="tok-val">true</span>
+});
+
+<span class="tok-com">// Protect routes with triple-strategy requireAuth middleware</span>
+app.get(<span class="tok-str">"/api/dashboard"</span>, devAuthKit.requireAuth, (req, res) => {
+  res.<span class="tok-fn">json</span>({ <span class="tok-prop">message</span>: <span class="tok-str">"Authenticated"</span>, <span class="tok-prop">user</span>: req.user });
+});
+
+app.<span class="tok-fn">listen</span>(<span class="tok-val">3000</span>, () => console.<span class="tok-fn">log</span>(<span class="tok-str">"DevAuthKit server ready on http://localhost:3000"</span>));</code></pre>
+
+        <!-- Hono Code Block -->
+        <pre class="code-block code-block-item" data-tab-content="hono" style="display: none;"><code><span class="tok-kw">import</span> { Hono } <span class="tok-kw">from</span> <span class="tok-str">"hono"</span>;
+<span class="tok-kw">import</span> { createHonoAuth, CloudflareD1RefreshTokenStore } <span class="tok-kw">from</span> <span class="tok-str">"devauthkit/hono"</span>;
+
+<span class="tok-kw">const</span> app = <span class="tok-kw">new</span> <span class="tok-fn">Hono</span>();
+
+<span class="tok-kw">export default</span> {
+  <span class="tok-kw">async</span> <span class="tok-fn">fetch</span>(request, env, ctx) {
+    <span class="tok-kw">const</span> auth = <span class="tok-fn">createHonoAuth</span>({
+      <span class="tok-prop">jwtSecret</span>: env.JWT_SECRET,
+      <span class="tok-prop">d1</span>: env.DB,
+      <span class="tok-prop">refreshTokenStore</span>: <span class="tok-kw">new</span> <span class="tok-fn">CloudflareD1RefreshTokenStore</span>(env.DB)
+    });
+
+    app.<span class="tok-fn">route</span>(<span class="tok-str">"/auth"</span>, auth.routes);
+
+    app.get(<span class="tok-str">"/api/user"</span>, auth.requireAuth, (c) => {
+      <span class="tok-kw">return</span> c.<span class="tok-fn">json</span>({ <span class="tok-prop">user</span>: c.<span class="tok-fn">get</span>(<span class="tok-str">"user"</span>) });
+    });
+
+    <span class="tok-kw">return</span> app.<span class="tok-fn">fetch</span>(request, env, ctx);
+  }
+};</code></pre>
+
+        <!-- React Code Block -->
+        <pre class="code-block code-block-item" data-tab-content="react" style="display: none;"><code><span class="tok-kw">import</span> React <span class="tok-kw">from</span> <span class="tok-str">"react"</span>;
+<span class="tok-kw">import</span> { AuthProvider, useAuth } <span class="tok-kw">from</span> <span class="tok-str">"devauthkit/react"</span>;
+
+<span class="tok-kw">function</span> <span class="tok-fn">UserProfile</span>() {
+  <span class="tok-kw">const</span> { user, isAuthenticated, sendOTP, verifyOTP, logout } = <span class="tok-fn">useAuth</span>();
+
+  <span class="tok-kw">if</span> (!isAuthenticated) {
+    <span class="tok-kw">return</span> &lt;<span class="tok-type">button</span> onClick={() =&gt; <span class="tok-fn">sendOTP</span>(<span class="tok-str">"user@dev.io"</span>)}&gt;Login with OTP&lt;/<span class="tok-type">button</span>&gt;;
+  }
+
+  <span class="tok-kw">return</span> (
+    &lt;<span class="tok-type">div</span>&gt;
+      &lt;<span class="tok-type">h2</span>&gt;Account: {user.email}&lt;/<span class="tok-type">h2</span>&gt;
+      &lt;<span class="tok-type">button</span> onClick={logout}&gt;Sign Out&lt;/<span class="tok-type">button</span>&gt;
+    &lt;/<span class="tok-type">div</span>&gt;
+  );
+}
+
+<span class="tok-kw">export default function</span> <span class="tok-fn">App</span>() {
+  <span class="tok-kw">return</span> (
+    &lt;<span class="tok-type">AuthProvider</span>&gt;
+      &lt;<span class="tok-type">UserProfile</span> /&gt;
+    &lt;/<span class="tok-type">AuthProvider</span>&gt;
+  );
+}</code></pre>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         Comparison Section
+         ==================================================================== -->
+    <section class="landing-section" id="comparison">
+      <div class="section-header-center">
+        <span class="section-tag">Comparison</span>
+        <h2 class="section-main-title">Why Developers Switch To DevAuthKit</h2>
+        <p class="section-main-desc">
+          Compare DevAuthKit against proprietary SaaS vendors and legacy packages.
+        </p>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>Capability</th>
+              <th class="highlight-col">DevAuthKit</th>
+              <th>Clerk / Auth0</th>
+              <th>NextAuth / Auth.js</th>
+              <th>Passport.js</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Pricing Model</strong></td>
+              <td class="highlight-col"><span class="check-pill">100% Free / Self-Hosted</span></td>
+              <td><span class="cross-pill">MAU Tiers ($$$)</span></td>
+              <td><span class="check-pill">Free</span></td>
+              <td><span class="check-pill">Free</span></td>
+            </tr>
+            <tr>
+              <td><strong>Setup Overhead</strong></td>
+              <td class="highlight-col"><span class="check-pill">&lt; 3 minutes</span></td>
+              <td>5 minutes</td>
+              <td>30+ minutes</td>
+              <td>2+ hours</td>
+            </tr>
+            <tr>
+              <td><strong>RFC 9449 DPoP</strong></td>
+              <td class="highlight-col"><span class="check-pill">✓ Built-in</span></td>
+              <td><span class="cross-pill">—</span></td>
+              <td><span class="cross-pill">—</span></td>
+              <td><span class="cross-pill">—</span></td>
+            </tr>
+            <tr>
+              <td><strong>Biometric Passkeys</strong></td>
+              <td class="highlight-col"><span class="check-pill">✓ Native WebAuthn</span></td>
+              <td><span class="check-pill">✓ Cloud Hosted</span></td>
+              <td>Manual Config</td>
+              <td><span class="cross-pill">—</span></td>
+            </tr>
+            <tr>
+              <td><strong>Cloudflare Edge</strong></td>
+              <td class="highlight-col"><span class="check-pill">✓ D1 & KV Native</span></td>
+              <td><span class="cross-pill">—</span></td>
+              <td>Partial</td>
+              <td><span class="cross-pill">—</span></td>
+            </tr>
+            <tr>
+              <td><strong>Database Adapters</strong></td>
+              <td class="highlight-col"><span class="check-pill">Prisma, Drizzle, Mongo</span></td>
+              <td>Vendor Locked</td>
+              <td>Prisma, Drizzle</td>
+              <td>Manual Glue</td>
+            </tr>
+            <tr>
+              <td><strong>Zero-Config Dev Mode</strong></td>
+              <td class="highlight-col"><span class="check-pill">✓ Terminal OTP</span></td>
+              <td><span class="cross-pill">—</span></td>
+              <td><span class="cross-pill">—</span></td>
+              <td><span class="cross-pill">—</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         Grand CTA Box
+         ==================================================================== -->
+    <section class="grand-cta-box">
+      <h2 class="grand-cta-title">Ready To Own Your Auth?</h2>
+      <p class="grand-cta-desc">
+        No monthly active user limits. No proprietary lock-in. Free and open source under the MIT license.
+      </p>
+
+      <div class="landing-hero-actions">
+        <div class="quick-install-box">
+          <span>npm install devauthkit</span>
+          <button class="copy-install-btn" data-copy="npm install devauthkit">Copy</button>
+        </div>
+        <a href="docs.html" class="nav-btn nav-btn-primary" style="padding: 9px 20px; font-size: 0.9rem;">
+          Read Complete Documentation →
+        </a>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <ul class="footer-links">
+      <li><a href="docs.html" class="footer-link">Documentation</a></li>
+      <li><a href="https://github.com/GautamSharma-coder/devauthkit" class="footer-link">GitHub</a></li>
+      <li><a href="https://www.npmjs.com/package/devauthkit" class="footer-link">npm</a></li>
+      <li><a href="#sandbox" class="footer-link">Live Sandbox</a></li>
+      <li><a href="https://github.com/GautamSharma-coder/devauthkit/blob/main/LICENSE" class="footer-link">MIT
+          License</a></li>
+    </ul>
+    <p>DevAuthKit — Engineered for developers by Gautam Sharma. Released under the MIT License.</p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+
+</html>

@@ -32,6 +32,7 @@ function AuthProvider({ client, initialUser = null, children }) {
   const [authClient] = React.useState(() => client || new DevAuthClient());
   const [user, setUser] = React.useState(() => initialUser || authClient.getUser());
   const [token, setToken] = React.useState(() => authClient.getToken());
+  const [isDPoPBound, setIsDPoPBound] = React.useState(() => authClient.isDPoPBound());
   const [isLoading, setIsLoading] = React.useState(true);
 
   React.useEffect(() => {
@@ -39,12 +40,14 @@ function AuthProvider({ client, initialUser = null, children }) {
     const currentUser = authClient.getUser();
     setUser(currentUser);
     setToken(authClient.getToken());
+    setIsDPoPBound(authClient.isDPoPBound());
     setIsLoading(false);
 
     // Subscribe to client authentication state changes
     const unsubscribe = authClient.onAuthStateChanged((newUser) => {
       setUser(newUser);
       setToken(authClient.getToken());
+      setIsDPoPBound(authClient.isDPoPBound());
     });
 
     return () => {
@@ -118,6 +121,7 @@ function AuthProvider({ client, initialUser = null, children }) {
       user,
       token,
       isAuthenticated: Boolean(user || token),
+      isDPoPBound,
       isLoading,
       client: authClient,
       sendOTP,
@@ -131,6 +135,7 @@ function AuthProvider({ client, initialUser = null, children }) {
     [
       user,
       token,
+      isDPoPBound,
       isLoading,
       authClient,
       sendOTP,

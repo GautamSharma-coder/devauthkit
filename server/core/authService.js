@@ -47,24 +47,32 @@ function createAuthService({ config, getRefreshTokenStore }) {
     };
   }
 
-  async function createAccessToken(userPayload, familyId) {
+  async function createAccessToken(userPayload, familyId, dpopJkt) {
+    const claims = { ...userPayload };
+    if (dpopJkt) {
+      claims.cnf = { jkt: dpopJkt };
+    }
     if (!familyId) {
-      return signJwt(userPayload, config.get("jwtSecret"), config.get("jwtExpiresIn"));
+      return signJwt(claims, config.get("jwtSecret"), config.get("jwtExpiresIn"));
     }
     const options = refreshOptions();
     return signJwt(
-      { ...userPayload, sid: familyId, jti: randomUUID() },
+      { ...claims, sid: familyId, jti: randomUUID() },
       config.get("jwtSecret"),
       options.accessTokenExpiresIn
     );
   }
 
-  async function issueTokens(userPayload, cookies) {
+  async function issueTokens(userPayload, cookies, dpopJkt) {
     const refreshConfig = refreshOptions();
     if (!refreshConfig) {
-      const token = await createAccessToken(userPayload);
+      const token = await createAccessToken(userPayload, null, dpopJkt);
       cookies.setAuthCookie(token);
-      return { token, user: userPayload };
+      return {
+        token,
+        user: userPayload,
+        tokenType: dpopJkt ? "DPoP" : "Bearer"
+      };
     }
 
     const familyId = randomUUID();
@@ -77,7 +85,7 @@ function createAuthService({ config, getRefreshTokenStore }) {
       expiresAt
     });
 
-    const token = await createAccessToken(userPayload, familyId);
+    const token = await createAccessToken(userPayload, familyId, dpopJkt);
     cookies.setAuthCookie(token);
     cookies.setRefreshCookie(
       refreshToken,
@@ -86,6 +94,7 @@ function createAuthService({ config, getRefreshTokenStore }) {
     const tokens = {
       token,
       user: userPayload,
+      tokenType: dpopJkt ? "DPoP" : "Bearer",
       refreshEnabled: true,
       expiresIn: refreshConfig.accessTokenExpiresIn
     };

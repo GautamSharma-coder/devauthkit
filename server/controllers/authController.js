@@ -6,11 +6,12 @@ const {
   sha256Hex
 } = require("../utils/webCrypto");
 const { createAuthService } = require("../core/authService");
+const { createPasskeyService, PasskeyServiceError } = require("../core/passkeyService");
 const { sendOTP } = require("../utils/mailer");
 const generateOTP = require("../utils/generateOTP");
-const sessionStore = require("../sessionStore");
 const config = require("../config");
 const defaultRefreshTokenStore = require("../stores/defaultRefreshTokenStore");
+const { verifyDPoPProof, DPoPError } = require("../core/dpopService");
 
 // Magic link in-memory store
 const magicLinkStore = new Map();
@@ -25,11 +26,52 @@ function getMagicLinkStore() {
   return config.get("magicLinkStore") || magicLinkStore;
 }
 
+function getOtpStore() {
+  return config.get("otpStore") || require("../sessionStore");
+}
+
 function getRefreshTokenStore() {
   return config.get("refreshTokenStore") || defaultRefreshTokenStore;
 }
 
 const authService = createAuthService({ config, getRefreshTokenStore });
+const passkeyService = createPasskeyService({ config, authService });
+
+function handlePasskeyError(res, error, action) {
+  if (error instanceof PasskeyServiceError) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error(`[DevAuthKit] Error ${action}:`, error);
+  return res.status(500).json({
+    error: `Failed to ${action}`,
+    details: config.get("debug") ? error.message : undefined
+  });
+}
+
+function requirePasskeySameOrigin(req, res) {
+  const origins = config.get("passkeys")?.origins || [];
+  if (
+    !origins.includes(req.headers?.origin) ||
+    req.headers?.["sec-fetch-site"] === "cross-site"
+  ) {
+    return res.status(403).json({ error: "Passkey management requires a same-origin request" });
+  }
+  return null;
+}
+
+async function completePasskeyLogin(req, res, userPayload) {
+  if (req.session && typeof req.session.regenerate === "function") {
+    await regenerateSession(req);
+  }
+  const tokens = await issueTokens(userPayload, res);
+  if (req.session) {
+    req.session.user = tokens.sessionId
+      ? { ...userPayload, sid: tokens.sessionId }
+      : userPayload;
+    if (typeof req.session.save === "function") await saveSession(req);
+  }
+  return res.json({ message: "Logged in successfully", ...tokens });
+}
 
 function getCookie(req, name) {
   if (req.cookies && req.cookies[name]) return req.cookies[name];
@@ -57,11 +99,39 @@ function clearRefreshCookie(res) {
   res.clearCookie(cookieName, refreshCookieOptions(0));
 }
 
-function issueTokens(userPayload, res) {
-  return authService.issueTokens(userPayload, {
-    setAuthCookie: (token) => setAuthCookie(res, token),
-    setRefreshCookie: (token, maxAge) => setRefreshCookie(res, token, maxAge)
+async function resolveDPoPJkt(req) {
+  const dpopHeader = req.headers?.dpop || req.headers?.DPoP;
+  if (!dpopHeader) return null;
+  const replayStore = config.get("dpopReplayStore");
+  if (!replayStore || typeof replayStore.record !== "function") {
+    throw new DPoPError(503, "dpop_replay_store_unavailable", "DPoP replay protection is not configured");
+  }
+  const verification = await verifyDPoPProof({
+    proofJwt: dpopHeader,
+    expectedMethod: req.method,
+    expectedUri: req.originalUrl || req.url,
+    expectedNonce: config.get("dpopNonce"),
+    replayStore,
+    maxClockSkewSeconds: config.get("dpopMaxClockSkewSeconds") || 60
   });
+  return verification.jkt;
+}
+
+function handleDPoPError(res, error) {
+  if (!(error instanceof DPoPError)) return null;
+  res.set("WWW-Authenticate", `DPoP error="${error.code}", error_description="${error.message}"`);
+  return res.status(error.status).json({ error: error.code, message: error.message });
+}
+
+function issueTokens(userPayload, res, dpopJkt = null) {
+  return authService.issueTokens(
+    userPayload,
+    {
+      setAuthCookie: (token) => setAuthCookie(res, token),
+      setRefreshCookie: (token, maxAge) => setRefreshCookie(res, token, maxAge)
+    },
+    dpopJkt
+  );
 }
 
 function setAuthCookie(res, token) {
@@ -114,7 +184,7 @@ exports.requestOTP = async (req, res) => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const otpStore = config.get("otpStore") || sessionStore;
+    const otpStore = getOtpStore();
     const existing = await otpStore.get(normalizedEmail);
 
     // Throttle: enforce minimum 30 seconds between OTP requests per email
@@ -176,7 +246,7 @@ exports.verifyOTP = async (req, res) => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const otpStore = config.get("otpStore") || sessionStore;
+    const otpStore = getOtpStore();
     const entry = await otpStore.get(normalizedEmail);
 
     if (!entry) {
@@ -213,7 +283,8 @@ exports.verifyOTP = async (req, res) => {
     // OTP is valid - clear from store to prevent replay attacks
     await otpStore.delete(normalizedEmail);
 
-    const tokens = await issueTokens(userPayload, res);
+    const dpopJkt = await resolveDPoPJkt(req);
+    const tokens = await issueTokens(userPayload, res, dpopJkt);
     if (req.session) {
       req.session.user = tokens.sessionId
         ? { ...userPayload, sid: tokens.sessionId }
@@ -225,6 +296,8 @@ exports.verifyOTP = async (req, res) => {
       ...tokens
     });
   } catch (error) {
+    const dpopErrorResponse = handleDPoPError(res, error);
+    if (dpopErrorResponse) return dpopErrorResponse;
     console.error("[DevAuthKit] Error verifying OTP:", error);
     return res.status(500).json({ 
       error: "Verification failed",
@@ -265,7 +338,8 @@ exports.refreshTokens = async (req, res) => {
     }
 
     const userPayload = result.record.user;
-    const token = await authService.createAccessToken(userPayload, result.record.familyId);
+    const dpopJkt = await resolveDPoPJkt(req);
+    const token = await authService.createAccessToken(userPayload, result.record.familyId, dpopJkt);
     setAuthCookie(res, token);
     setRefreshCookie(
       res,
@@ -277,10 +351,13 @@ exports.refreshTokens = async (req, res) => {
       message: "Token refreshed successfully",
       token,
       user: userPayload,
+      tokenType: dpopJkt ? "DPoP" : "Bearer",
       refreshEnabled: true,
       expiresIn: refreshConfig.accessTokenExpiresIn
     });
   } catch (error) {
+    const dpopErrorResponse = handleDPoPError(res, error);
+    if (dpopErrorResponse) return dpopErrorResponse;
     console.error("[DevAuthKit] Error refreshing tokens:", error);
     return res.status(500).json({
       error: "Failed to refresh token",
@@ -352,7 +429,8 @@ exports.verifyMagicLink = async (req, res) => {
       await regenerateSession(req);
     }
 
-    const tokens = await issueTokens(userPayload, res);
+    const dpopJkt = await resolveDPoPJkt(req);
+    const tokens = await issueTokens(userPayload, res, dpopJkt);
     if (req.session) {
       req.session.user = tokens.sessionId
         ? { ...userPayload, sid: tokens.sessionId }
@@ -370,6 +448,8 @@ exports.verifyMagicLink = async (req, res) => {
       ...tokens
     });
   } catch (error) {
+    const dpopErrorResponse = handleDPoPError(res, error);
+    if (dpopErrorResponse) return dpopErrorResponse;
     console.error("[DevAuthKit] Error verifying magic link:", error);
     return res.status(500).json({ error: "Failed to verify magic link" });
   }
@@ -654,6 +734,66 @@ exports.startGoogleOAuth = (req, res) => createOAuthHandler("google")(req, res);
 exports.googleOAuthCallback = (req, res) => createOAuthCallback("google")(req, res);
 exports.startGitHubOAuth = (req, res) => createOAuthHandler("github")(req, res);
 exports.githubOAuthCallback = (req, res) => createOAuthCallback("github")(req, res);
+
+exports.passkeyRegistrationOptions = async (req, res) => {
+  const forbidden = requirePasskeySameOrigin(req, res);
+  if (forbidden) return forbidden;
+  try {
+    const options = await passkeyService.registrationOptions(req.user);
+    return res.json(options);
+  } catch (error) {
+    return handlePasskeyError(res, error, "create passkey registration options");
+  }
+};
+
+exports.verifyPasskeyRegistration = async (req, res) => {
+  const forbidden = requirePasskeySameOrigin(req, res);
+  if (forbidden) return forbidden;
+  try {
+    const result = await passkeyService.verifyRegistration(req.user, req.body?.credential);
+    return res.json({ message: "Passkey registered successfully", ...result });
+  } catch (error) {
+    return handlePasskeyError(res, error, "verify passkey registration");
+  }
+};
+
+exports.passkeyAuthenticationOptions = async (req, res) => {
+  try {
+    const options = await passkeyService.authenticationOptions(req.body?.email);
+    return res.json(options);
+  } catch (error) {
+    return handlePasskeyError(res, error, "create passkey authentication options");
+  }
+};
+
+exports.verifyPasskeyAuthentication = async (req, res) => {
+  try {
+    const userPayload = await passkeyService.verifyAuthentication(req.body?.credential);
+    return await completePasskeyLogin(req, res, userPayload);
+  } catch (error) {
+    return handlePasskeyError(res, error, "verify passkey authentication");
+  }
+};
+
+exports.listPasskeys = async (req, res) => {
+  try {
+    const passkeys = await passkeyService.list(req.user);
+    return res.json({ passkeys });
+  } catch (error) {
+    return handlePasskeyError(res, error, "list passkeys");
+  }
+};
+
+exports.deletePasskey = async (req, res) => {
+  const forbidden = requirePasskeySameOrigin(req, res);
+  if (forbidden) return forbidden;
+  try {
+    await passkeyService.remove(req.user, req.params?.credentialId);
+    return res.json({ message: "Passkey deleted successfully" });
+  } catch (error) {
+    return handlePasskeyError(res, error, "delete passkey");
+  }
+};
 
 /**
  * Get current authenticated user profile

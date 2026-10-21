@@ -34,6 +34,13 @@ export interface DevAuthClientOptions {
   customFetch?: typeof fetch;
 
   /**
+   * If true, enables RFC 9449 Demonstrating Proof-of-Possession (DPoP) token binding.
+   * Cryptographically binds access tokens to client ECDSA P-256 keys to neutralize token theft.
+   * @default false
+   */
+  dpop?: boolean;
+
+  /**
    * If true, sends cookies with all fetch requests (credentials: "include")
    * @default true
    */
@@ -57,6 +64,7 @@ export interface VerifyOTPResponse {
   success: boolean;
   message: string;
   token?: string;
+  tokenType?: "DPoP" | "Bearer";
   user: AuthUser;
   refreshEnabled?: boolean;
   expiresIn?: string;
@@ -65,6 +73,7 @@ export interface VerifyOTPResponse {
 export interface RefreshResponse {
   message: string;
   token: string;
+  tokenType?: "DPoP" | "Bearer";
   user: AuthUser;
   refreshEnabled: true;
   expiresIn: string;
@@ -77,9 +86,31 @@ export class DevAuthClient {
   apiPrefix: string;
   tokenKey: string;
   userKey: string;
+  tokenTypeKey: string;
   refreshEnabledKey: string;
   useCookies: boolean;
+  dpop: boolean;
   refreshPromise: Promise<RefreshResponse> | null;
+
+  /**
+   * Get or create client-side ECDSA P-256 key pair for DPoP proof generation
+   */
+  getDPoPKeyPair(): Promise<{
+    keyPair: CryptoKeyPair;
+    privateKey: CryptoKey;
+    publicKey: CryptoKey;
+    jwk: { kty: string; crv: string; x: string; y: string };
+  }>;
+
+  /**
+   * Create an RFC 9449 DPoP proof JWT for an outgoing HTTP request
+   */
+  createDPoPProof(method: string, uri: string, accessToken?: string): Promise<string>;
+
+  /**
+   * Check if the client or active session is DPoP bound
+   */
+  isDPoPBound(): boolean;
 
   /**
    * Request a one-time login code sent to the specified email

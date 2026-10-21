@@ -44,6 +44,77 @@
     return new MemoryStorage();
   }
 
+  function getSubtleCrypto() {
+    if (typeof globalThis !== "undefined" && globalThis.crypto?.subtle) {
+      return globalThis.crypto.subtle;
+    }
+    if (typeof window !== "undefined" && window.crypto?.subtle) {
+      return window.crypto.subtle;
+    }
+    try {
+      const nodeCrypto = require("crypto");
+      if (nodeCrypto.webcrypto?.subtle) {
+        return nodeCrypto.webcrypto.subtle;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function bytesToBase64Url(bytes) {
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  }
+
+  async function sha256Base64Url(str, subtle) {
+    const encoder = new TextEncoder();
+    const digest = await subtle.digest("SHA-256", encoder.encode(str));
+    return bytesToBase64Url(new Uint8Array(digest));
+  }
+
+  async function createClientDPoPProof({ privateKey, jwk, method, uri, accessToken, nonce, subtle }) {
+    const encoder = new TextEncoder();
+    const now = Math.floor(Date.now() / 1000);
+    const header = {
+      typ: "dpop+jwt",
+      alg: "ES256",
+      jwk: {
+        kty: jwk.kty,
+        crv: jwk.crv,
+        x: jwk.x,
+        y: jwk.y
+      }
+    };
+    const htu = uri.split("?")[0].split("#")[0];
+    const payload = {
+      jti: (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+        ? crypto.randomUUID()
+        : ("dpop_" + Math.random().toString(36).slice(2) + Date.now().toString(36)),
+      htm: method.toUpperCase(),
+      htu,
+      iat: now
+    };
+    if (accessToken) {
+      payload.ath = await sha256Base64Url(accessToken, subtle);
+    }
+    if (nonce) {
+      payload.nonce = nonce;
+    }
+
+    const encodedHeader = bytesToBase64Url(encoder.encode(JSON.stringify(header)));
+    const encodedPayload = bytesToBase64Url(encoder.encode(JSON.stringify(payload)));
+    const signingInput = `${encodedHeader}.${encodedPayload}`;
+
+    const signatureBuf = await subtle.sign(
+      { name: "ECDSA", hash: { name: "SHA-256" } },
+      privateKey,
+      encoder.encode(signingInput)
+    );
+    return `${signingInput}.${bytesToBase64Url(new Uint8Array(signatureBuf))}`;
+  }
+
   class DevAuthClient {
     /**
      * @param {Object} options
@@ -59,12 +130,76 @@
       this.apiPrefix = options.apiPrefix || "/auth";
       this.tokenKey = options.tokenKey || "devauth_token";
       this.userKey = options.userKey || "devauth_user";
+      this.tokenTypeKey = `${this.tokenKey}_type`;
       this.refreshEnabledKey = `${this.tokenKey}_refresh_enabled`;
+      this.dpop = Boolean(options.dpop);
+      this.dpopKey = null;
+      this.dpopNonce = null;
       this.onTokenExpired = options.onTokenExpired || null;
       this.fetchImpl = options.customFetch || (typeof fetch !== "undefined" ? fetch.bind(globalThis) : null);
       this.storage = getStorage();
       this.listeners = [];
       this.refreshPromise = null;
+    }
+
+    /**
+     * Get or create client-side ECDSA P-256 key pair for DPoP proof generation
+     * @returns {Promise<{ keyPair: CryptoKeyPair, privateKey: CryptoKey, publicKey: CryptoKey, jwk: Object }>}
+     */
+    async getDPoPKeyPair() {
+      if (this.dpopKey) return this.dpopKey;
+      const subtle = getSubtleCrypto();
+      if (!subtle) {
+        throw new Error("[DevAuthKit] Web Crypto API is required for DPoP proof generation");
+      }
+      const keyPair = await subtle.generateKey(
+        { name: "ECDSA", namedCurve: "P-256" },
+        true,
+        ["sign", "verify"]
+      );
+      const exportedPub = await subtle.exportKey("jwk", keyPair.publicKey);
+      const publicJwk = {
+        kty: exportedPub.kty,
+        crv: exportedPub.crv,
+        x: exportedPub.x,
+        y: exportedPub.y
+      };
+      this.dpopKey = {
+        keyPair,
+        privateKey: keyPair.privateKey,
+        publicKey: keyPair.publicKey,
+        jwk: publicJwk
+      };
+      return this.dpopKey;
+    }
+
+    /**
+     * Create an RFC 9449 DPoP proof JWT for an outgoing HTTP request
+     * @param {string} method - HTTP method ("GET", "POST", etc.)
+     * @param {string} uri - Target URI
+     * @param {string} [accessToken] - Access token to bind via ath claim
+     * @returns {Promise<string>}
+     */
+    async createDPoPProof(method, uri, accessToken) {
+      const keyObj = await this.getDPoPKeyPair();
+      const subtle = getSubtleCrypto();
+      return createClientDPoPProof({
+        privateKey: keyObj.privateKey,
+        jwk: keyObj.jwk,
+        method,
+        uri,
+        accessToken,
+        nonce: this.dpopNonce,
+        subtle
+      });
+    }
+
+    /**
+     * Check if the client or active session is DPoP bound
+     * @returns {boolean}
+     */
+    isDPoPBound() {
+      return this.dpop || this.storage.getItem(this.tokenTypeKey) === "DPoP";
     }
 
     /**
@@ -133,12 +268,25 @@
     async verifyOTP(email, otp) {
       if (!email || !otp) throw new Error("Email and OTP are required");
 
-      const res = await this._rawFetch(`${this.apiUrl}${this.apiPrefix}/verify`, {
+      const url = `${this.apiUrl}${this.apiPrefix}/verify`;
+      const headers = { "Content-Type": "application/json" };
+      if (this.dpop) {
+        try {
+          headers["DPoP"] = await this.createDPoPProof("POST", url);
+        } catch (e) {
+          console.warn("[DevAuthKit] Failed to generate DPoP proof for verifyOTP:", e);
+        }
+      }
+
+      const res = await this._rawFetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         credentials: "include",
-        body: JSON.stringify({ email: email.trim(), otp: otp.trim() }),
+        body: JSON.stringify({ email: email.trim(), otp: otp.toString().trim() }),
       });
+
+      const dpopNonceHeader = res.headers?.get ? res.headers.get("DPoP-Nonce") : res.headers?.["dpop-nonce"];
+      if (dpopNonceHeader) this.dpopNonce = dpopNonceHeader;
 
       const data = await res.json();
       if (!res.ok) {
@@ -149,6 +297,11 @@
 
       if (data.token) {
         this.storage.setItem(this.tokenKey, data.token);
+      }
+      if (data.tokenType === "DPoP") {
+        this.storage.setItem(this.tokenTypeKey, "DPoP");
+      } else {
+        this.storage.removeItem(this.tokenTypeKey);
       }
       if (data.user) {
         this.storage.setItem(this.userKey, JSON.stringify(data.user));
@@ -177,12 +330,25 @@
     async verifyMagicLink(token, email) {
       if (!token) throw new Error("Magic link token is required");
 
-      const res = await this._rawFetch(`${this.apiUrl}${this.apiPrefix}/verify-magic`, {
+      const url = `${this.apiUrl}${this.apiPrefix}/verify-magic`;
+      const headers = { "Content-Type": "application/json" };
+      if (this.dpop) {
+        try {
+          headers["DPoP"] = await this.createDPoPProof("POST", url);
+        } catch (e) {
+          console.warn("[DevAuthKit] Failed to generate DPoP proof for verifyMagicLink:", e);
+        }
+      }
+
+      const res = await this._rawFetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         credentials: "include",
         body: JSON.stringify({ token: String(token).trim(), ...(email ? { email: String(email).trim() } : {}) }),
       });
+
+      const dpopNonceHeader = res.headers?.get ? res.headers.get("DPoP-Nonce") : res.headers?.["dpop-nonce"];
+      if (dpopNonceHeader) this.dpopNonce = dpopNonceHeader;
 
       const data = await res.json();
       if (!res.ok) {
@@ -191,6 +357,11 @@
 
       if (data.token) {
         this.storage.setItem(this.tokenKey, data.token);
+      }
+      if (data.tokenType === "DPoP") {
+        this.storage.setItem(this.tokenTypeKey, "DPoP");
+      } else {
+        this.storage.removeItem(this.tokenTypeKey);
       }
       if (data.user) {
         this.storage.setItem(this.userKey, JSON.stringify(data.user));
@@ -254,15 +425,33 @@
     async refresh() {
       if (!this.refreshPromise) {
         this.refreshPromise = (async () => {
-          const res = await this._rawFetch(`${this.apiUrl}${this.apiPrefix}/refresh`, {
+          const url = `${this.apiUrl}${this.apiPrefix}/refresh`;
+          const headers = {};
+          if (this.isDPoPBound()) {
+            try {
+              headers["DPoP"] = await this.createDPoPProof("POST", url);
+            } catch (e) {
+              console.warn("[DevAuthKit] Failed to generate DPoP proof for refresh:", e);
+            }
+          }
+
+          const res = await this._rawFetch(url, {
             method: "POST",
+            headers,
             credentials: "include"
           });
+
+          const dpopNonceHeader = res.headers?.get ? res.headers.get("DPoP-Nonce") : res.headers?.["dpop-nonce"];
+          if (dpopNonceHeader) this.dpopNonce = dpopNonceHeader;
+
           const data = await res.json();
           if (!res.ok) {
             throw new Error(data.error || "Failed to refresh authentication");
           }
           this.storage.setItem(this.tokenKey, data.token);
+          if (data.tokenType === "DPoP") {
+            this.storage.setItem(this.tokenTypeKey, "DPoP");
+          }
           if (data.user) this.storage.setItem(this.userKey, JSON.stringify(data.user));
           this.storage.setItem(this.refreshEnabledKey, "true");
           return data;
@@ -287,9 +476,19 @@
 
       const headers = new Headers(options.headers || {});
       const token = this.getToken();
+      const isDPoP = this.isDPoPBound();
+      const method = (options.method || "GET").toUpperCase();
 
       if (token && !headers.has("Authorization")) {
-        headers.set("Authorization", `Bearer ${token}`);
+        headers.set("Authorization", isDPoP ? `DPoP ${token}` : `Bearer ${token}`);
+      }
+
+      if (isDPoP && !headers.has("DPoP")) {
+        try {
+          headers.set("DPoP", await this.createDPoPProof(method, url, token || undefined));
+        } catch (e) {
+          console.warn("[DevAuthKit] Failed to generate DPoP proof for fetch:", e);
+        }
       }
 
       const requestOptions = {
@@ -300,17 +499,42 @@
 
       let res = await this._rawFetch(url, requestOptions);
 
+      // Capture DPoP-Nonce if provided
+      const dpopNonceHeader = res.headers?.get ? res.headers.get("DPoP-Nonce") : res.headers?.["dpop-nonce"];
+      if (dpopNonceHeader) {
+        this.dpopNonce = dpopNonceHeader;
+      }
+
+      // If server returned 401 with use_dpop_nonce challenge, auto-retry once with fresh nonce
+      if (res.status === 401 && dpopNonceHeader && isDPoP) {
+        try {
+          const retryHeaders = new Headers(options.headers || {});
+          if (token && !retryHeaders.has("Authorization")) {
+            retryHeaders.set("Authorization", `DPoP ${token}`);
+          }
+          retryHeaders.set("DPoP", await this.createDPoPProof(method, url, token || undefined));
+          res = await this._rawFetch(url, { ...requestOptions, headers: retryHeaders });
+        } catch (e) {
+          // ignore retry error
+        }
+      }
+
       if (res.status === 401 && this.storage.getItem(this.refreshEnabledKey) === "true") {
         try {
           await this.refresh();
           const refreshedHeaders = new Headers(options.headers || {});
           const refreshedToken = this.getToken();
+          const refreshedIsDPoP = this.isDPoPBound();
           if (refreshedToken && !refreshedHeaders.has("Authorization")) {
-            refreshedHeaders.set("Authorization", ["Bear", "er "].join("") + refreshedToken);
+            refreshedHeaders.set("Authorization", refreshedIsDPoP ? `DPoP ${refreshedToken}` : `Bearer ${refreshedToken}`);
+          }
+          if (refreshedIsDPoP && !refreshedHeaders.has("DPoP")) {
+            refreshedHeaders.set("DPoP", await this.createDPoPProof(method, url, refreshedToken || undefined));
           }
           res = await this._rawFetch(url, { ...requestOptions, headers: refreshedHeaders });
         } catch {
           this.storage.removeItem(this.tokenKey);
+          this.storage.removeItem(this.tokenTypeKey);
           this.storage.removeItem(this.userKey);
           this.storage.removeItem(this.refreshEnabledKey);
           this._notifyAuthChange(null);
@@ -341,8 +565,11 @@
       }
 
       this.storage.removeItem(this.tokenKey);
+      this.storage.removeItem(this.tokenTypeKey);
       this.storage.removeItem(this.userKey);
       this.storage.removeItem(this.refreshEnabledKey);
+      this.dpopKey = null;
+      this.dpopNonce = null;
       this._notifyAuthChange(null);
       return { success: true };
     }

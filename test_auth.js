@@ -7,12 +7,51 @@ const { DevAuthClient } = require("./client/index.js");
 async function runTests() {
   console.log("🧪 Starting DevAuthKit Phase 1 & Client SDK Automated Verification...\n");
 
+  const passkeyCredentials = new Map();
+  const passkeyChallenges = new Map();
+  const passkeyStore = {
+    async getUserHandle(userId) {
+      return `handle-${userId}`;
+    },
+    async create(credential) {
+      passkeyCredentials.set(credential.id, credential);
+    },
+    async getByCredentialId(id) {
+      return passkeyCredentials.get(id) || null;
+    },
+    async listByUserId() {
+      return [];
+    },
+    async updateCounter() {
+      return false;
+    },
+    async deleteByCredentialId() {
+      return false;
+    },
+    async put(challenge, record) {
+      passkeyChallenges.set(challenge, record);
+    },
+    async consume(challenge, purpose) {
+      const record = passkeyChallenges.get(challenge);
+      if (!record || record.purpose !== purpose || record.expiresAt <= Date.now()) return null;
+      passkeyChallenges.delete(challenge);
+      return record;
+    }
+  };
+
   const app = express();
   devAuthKit(app, {
     jwtSecret: "test-jwt-secret",
     sessionSecret: "test-session-secret",
     devMode: true,
-    debug: false
+    debug: false,
+    passkeys: {
+      rpName: "DevAuthKit Test",
+      rpID: "example.com",
+      origins: ["https://example.com"]
+    },
+    passkeyStore,
+    passkeyChallengeStore: passkeyStore
   });
 
   const { requireAuth } = devAuthKit;
@@ -110,6 +149,51 @@ async function runTests() {
     const token = goodVerifyData.token;
     const setCookieHeader = goodVerifyRes.headers.get("set-cookie") || "";
     assert(setCookieHeader.includes("devauth_token="), "verifyOTP automatically sets httpOnly auth cookie");
+
+    const passkeyOptionsResponse = await fetch(`${baseUrl}/auth/passkeys/register/options`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Origin: "https://example.com",
+        "Content-Type": "application/json"
+      },
+      body: "{}"
+    });
+    const passkeyOptions = await passkeyOptionsResponse.json();
+    assert(
+      passkeyOptionsResponse.ok && passkeyOptions.rp.id === "example.com",
+      "Express exposes authenticated passkey registration options"
+    );
+    const crossOriginEnrollment = await fetch(`${baseUrl}/auth/passkeys/register/options`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Origin: "https://attacker.example",
+        "Content-Type": "application/json"
+      },
+      body: "{}"
+    });
+    assert(crossOriginEnrollment.status === 403, "Cross-origin requests cannot enroll passkeys");
+
+    const passkeyListResponse = await fetch(`${baseUrl}/auth/passkeys`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert(passkeyListResponse.ok && (await passkeyListResponse.json()).passkeys.length === 0,
+      "Express exposes authenticated passkey management");
+
+    const passkeyLoginOptions = await fetch(`${baseUrl}/auth/passkeys/authenticate/options`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: testEmail })
+    });
+    assert(passkeyLoginOptions.ok, "Express exposes public passkey authentication options");
+
+    const unknownPasskeyLogin = await fetch(`${baseUrl}/auth/passkeys/authenticate/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: { id: "unknown-passkey" } })
+    });
+    assert(unknownPasskeyLogin.status === 401, "Unknown passkey credentials cannot authenticate");
 
     // Test 4: Replay protection (OTP must be cleared after verification)
     const replayRes = await fetch(`${baseUrl}/auth/verify`, {
@@ -305,6 +389,38 @@ async function runTests() {
       "Redis rate-limit adapter increments atomically and applies expiry to new counters"
     );
 
+    const dpopRedisValues = new Map();
+    const dpopSetOptions = [];
+    const mockDpopRedis = {
+      async get(key) {
+        return dpopRedisValues.get(key) ?? null;
+      },
+      async set(key, value, options) {
+        dpopSetOptions.push(options);
+        if (options.NX && dpopRedisValues.has(key)) return null;
+        dpopRedisValues.set(key, value);
+        return "OK";
+      }
+    };
+    const redisDpopReplayStore = new devAuthKit.RedisDpopReplayStore(mockDpopRedis, {
+      keyPrefix: "test:dpop:"
+    });
+    const concurrentJtiClaims = await Promise.all(
+      Array.from({ length: 10 }, () => redisDpopReplayStore.record("same-proof-jti", 45))
+    );
+    assert(
+      concurrentJtiClaims.filter(Boolean).length === 1 &&
+        dpopSetOptions[0]?.NX === true &&
+        dpopSetOptions[0]?.EX === 45 &&
+        await redisDpopReplayStore.isUsed("same-proof-jti"),
+      "Redis DPoP replay adapter atomically claims JTIs with an expiry"
+    );
+    assert(
+      await redisDpopReplayStore.record("another-proof-jti") &&
+        !await redisDpopReplayStore.record("same-proof-jti"),
+      "Redis DPoP replay adapter accepts a fresh JTI and rejects a replay"
+    );
+
     const rateLimitApp = express();
     devAuthKit(rateLimitApp, {
       jwtSecret: "rate-limit-test-jwt-secret",
@@ -409,6 +525,37 @@ async function runTests() {
       else process.env.NODE_ENV = originalNodeEnv;
     }
     assert(missingProductionSecretsRejected, "Production initialization requires explicit high-entropy JWT and session secrets");
+
+    const doctorReport = devAuthKit.checkConfig({
+      dpop: true,
+      corsOrigin: "*"
+    });
+    assert(
+      doctorReport.valid === false &&
+        doctorReport.issues.some((issue) => issue.code === "dpop_replay_store_missing") &&
+        doctorReport.issues.some((issue) => issue.code === "cors_wildcard_credentials"),
+      "Configuration doctor reports actionable DPoP and credentialed CORS errors"
+    );
+    const previousDoctorNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    let productionDoctorReport;
+    try {
+      productionDoctorReport = devAuthKit.checkConfig({
+        jwtSecret: "production-jwt-secret-value-that-is-long-enough",
+        sessionSecret: "production-session-secret-that-is-long-enough",
+        otpStore: {},
+        sessionStore: {},
+        rateLimit: false
+      });
+    } finally {
+      if (previousDoctorNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousDoctorNodeEnv;
+    }
+    assert(
+      productionDoctorReport.issues.some((issue) => issue.code === "rate_limiting_disabled") &&
+        !productionDoctorReport.issues.some((issue) => issue.code === "production_secrets"),
+      "Configuration doctor reports production readiness warnings without exposing secrets"
+    );
 
     const prismaCalls = [];
     const prismaUserAdapter = devAuthKit.prismaAdapter({

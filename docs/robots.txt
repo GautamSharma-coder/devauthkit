@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://gautamsharma-coder.github.io/devauthkit/sitemap.xml

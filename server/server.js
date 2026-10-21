@@ -7,16 +7,22 @@ const cors = require("cors");
 const config = require("./config");
 const authRoutes = require("./routes/authRoutes");
 const requireAuth = require("./middleware/requireAuth");
+const requireMfa = require("./middleware/requireMfa");
 const requireRole = require("./middleware/requireRole");
 const RedisOtpStore = require("./stores/redisOtpStore");
 const prismaAdapter = require("./adapters/prisma");
 const drizzleAdapter = require("./adapters/drizzle");
 const mongooseAdapter = require("./adapters/mongoose");
 const MemoryRefreshTokenStore = require("./stores/memoryRefreshTokenStore");
+const { RedisRefreshTokenStore } = require("./stores/redisRefreshTokenStore");
 const RedisRateLimitStore = require("./stores/redisRateLimitStore");
+const { RedisDpopReplayStore } = require("./stores/redisDpopReplayStore");
 const MemoryRateLimitStore = require("./stores/memoryRateLimitStore");
 const sendSMTPOTP = require("./utils/smtpMailer");
 const validateOAuthProviders = require("./utils/oauthProviderConfig");
+const validatePasskeyConfig = require("./utils/passkeyConfig");
+const checkConfig = require("./utils/configDoctor");
+const { MemoryMfaStore } = require("./stores/memoryMfaStore");
 const { randomString } = require("./utils/webCrypto");
 
 dotenv.config();
@@ -27,6 +33,12 @@ function devAuthKit(app, options = {}) {
     smtpMailer: options.smtpMailer || sendSMTPOTP,
     smtpMailerAvailable: options.smtpMailer ? true : sendSMTPOTP.isConfigured()
   });
+  const dpopEnabled = activeConfig.dpop && activeConfig.dpop !== "disabled" &&
+    activeConfig.dpop?.mode !== "disabled";
+  if (dpopEnabled &&
+      (!activeConfig.dpopReplayStore || typeof activeConfig.dpopReplayStore.record !== "function")) {
+    throw new TypeError("DPoP requires a dpopReplayStore implementing atomic record(jti, ttlSeconds)");
+  }
   const jwtSecret = options.jwtSecret || process.env.JWT_SECRET ||
     options.sessionSecret || process.env.SESSION_SECRET;
   const sessionSecret = options.sessionSecret || process.env.SESSION_SECRET;
@@ -44,6 +56,29 @@ function devAuthKit(app, options = {}) {
   }
   if (!activeConfig.jwtSecret) activeConfig.jwtSecret = randomString(32, "hex");
   validateOAuthProviders(activeConfig.oauthProviders);
+  validatePasskeyConfig(
+    activeConfig.passkeys,
+    activeConfig.passkeyStore,
+    activeConfig.passkeyChallengeStore
+  );
+  if (activeConfig.mfaStore && ![
+    "get",
+    "setPending",
+    "activate",
+    "consumeTotpCounter",
+    "consumeRecoveryCode",
+    "disable"
+  ].every((method) => typeof activeConfig.mfaStore[method] === "function")) {
+    throw new TypeError("mfaStore must implement get, setPending, activate, consumeTotpCounter, consumeRecoveryCode, and disable");
+  }
+  if (typeof activeConfig.mfaIssuer !== "string" || !activeConfig.mfaIssuer.trim()) {
+    throw new TypeError("mfaIssuer must be a non-empty string");
+  }
+  if (!Number.isSafeInteger(activeConfig.mfaStepUpExpiresInSeconds) ||
+      activeConfig.mfaStepUpExpiresInSeconds < 30 ||
+      activeConfig.mfaStepUpExpiresInSeconds > 3600) {
+    throw new TypeError("mfaStepUpExpiresInSeconds must be an integer from 30 through 3600");
+  }
   if (activeConfig.otpStore && !["get", "set", "delete", "recordAttempt"].every(
     (method) => typeof activeConfig.otpStore[method] === "function"
   )) {
@@ -256,17 +291,35 @@ function devAuthKit(app, options = {}) {
   return app;
 }
 
+const requireDPoP = require("./middleware/requireDPoP");
+const { MemoryDpopReplayStore } = require("./stores/memoryDpopReplayStore");
+const dpopService = require("./core/dpopService");
+
 // Export middleware and config helpers for developers
 devAuthKit.requireAuth = requireAuth;
+devAuthKit.requireMfa = requireMfa;
+devAuthKit.requireDPoP = requireDPoP;
 devAuthKit.requireRole = requireRole;
 devAuthKit.devAuthKit = devAuthKit;
 devAuthKit.config = config;
+devAuthKit.checkConfig = (options) => {
+  if (options !== undefined &&
+      (!options || typeof options !== "object" || Array.isArray(options))) {
+    return checkConfig(options);
+  }
+  return checkConfig({ ...config.get(), ...(options || {}) });
+};
 devAuthKit.RedisOtpStore = RedisOtpStore;
 devAuthKit.prismaAdapter = prismaAdapter;
 devAuthKit.drizzleAdapter = drizzleAdapter;
 devAuthKit.mongooseAdapter = mongooseAdapter;
 devAuthKit.MemoryRefreshTokenStore = MemoryRefreshTokenStore;
+devAuthKit.MemoryMfaStore = MemoryMfaStore;
+devAuthKit.RedisRefreshTokenStore = RedisRefreshTokenStore;
 devAuthKit.MemoryRateLimitStore = MemoryRateLimitStore;
 devAuthKit.RedisRateLimitStore = RedisRateLimitStore;
+devAuthKit.RedisDpopReplayStore = RedisDpopReplayStore;
+devAuthKit.MemoryDpopReplayStore = MemoryDpopReplayStore;
+devAuthKit.dpop = dpopService;
 
 module.exports = devAuthKit;
