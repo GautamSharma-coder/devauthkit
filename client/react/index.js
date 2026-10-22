@@ -163,8 +163,103 @@ function useAuth() {
   return context;
 }
 
+/**
+ * Hook to consume DevAuthKit organization and workspace state.
+ * Must be used within an AuthProvider.
+ */
+function useOrg() {
+  const { client, token } = useAuth();
+  const [activeOrg, setActiveOrg] = React.useState(() => client.getActiveOrg());
+  const [organizations, setOrganizations] = React.useState([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  const loadOrgs = React.useCallback(async () => {
+    if (!client.isAuthenticated()) {
+      setOrganizations([]);
+      setActiveOrg(null);
+      setIsLoading(false);
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const list = await client.listOrgs();
+      setOrganizations(list);
+      const current = client.getActiveOrg();
+      if (!current && list.length > 0) {
+        setActiveOrg(list[0]);
+      } else {
+        setActiveOrg(current);
+      }
+    } catch (e) {
+      // Ignore if user has no orgs or backend orgs not enabled
+    } finally {
+      setIsLoading(false);
+    }
+  }, [client]);
+
+  React.useEffect(() => {
+    loadOrgs();
+  }, [loadOrgs, token]);
+
+  const switchOrg = React.useCallback(
+    async (orgId) => {
+      const result = await client.switchOrg(orgId);
+      setActiveOrg(result.organization);
+      await loadOrgs();
+      return result;
+    },
+    [client, loadOrgs]
+  );
+
+  const createOrg = React.useCallback(
+    async (params) => {
+      const result = await client.createOrg(params);
+      if (result.organization?.id) {
+        await switchOrg(result.organization.id);
+      }
+      return result;
+    },
+    [client, switchOrg]
+  );
+
+  const inviteMember = React.useCallback(
+    (orgId, params) => {
+      return client.inviteMember(orgId, params);
+    },
+    [client]
+  );
+
+  const joinOrg = React.useCallback(
+    async (inviteToken) => {
+      const result = await client.joinOrg(inviteToken);
+      if (result.organization) {
+        setActiveOrg(result.organization);
+      }
+      await loadOrgs();
+      return result;
+    },
+    [client, loadOrgs]
+  );
+
+  return {
+    activeOrg,
+    organizations,
+    isLoading,
+    loadOrgs,
+    createOrg,
+    switchOrg,
+    inviteMember,
+    joinOrg,
+    listInvitations: (orgId) => client.listInvitations(orgId),
+    revokeInvitation: (orgId, inviteId) => client.revokeInvitation(orgId, inviteId),
+    updateMemberRole: (orgId, userId, role) => client.updateMemberRole(orgId, userId, role),
+    removeMember: (orgId, userId) => client.removeMember(orgId, userId)
+  };
+}
+
 module.exports = {
   AuthProvider,
   useAuth,
+  useOrg,
   AuthContext
 };

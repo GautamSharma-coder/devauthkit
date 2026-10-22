@@ -24,6 +24,12 @@ export interface DevAuthClientOptions {
   userKey?: string;
 
   /**
+   * Key name used for organization metadata in localStorage
+   * @default "devauth_org"
+   */
+  orgKey?: string;
+
+  /**
    * Callback invoked when any authenticated request returns a 401 Unauthorized status
    */
   onTokenExpired?: () => void;
@@ -45,6 +51,25 @@ export interface DevAuthClientOptions {
    * @default true
    */
   useCookies?: boolean;
+}
+
+export interface ClientOrg {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl?: string | null;
+  metadata?: Record<string, any>;
+  role?: string;
+  joinedAt?: number;
+}
+
+export interface ClientOrgMember {
+  id: string;
+  orgId: string;
+  userId: string;
+  role: string;
+  email?: string;
+  joinedAt: number;
 }
 
 export interface AuthUser {
@@ -86,6 +111,7 @@ export class DevAuthClient {
   apiPrefix: string;
   tokenKey: string;
   userKey: string;
+  orgKey: string;
   tokenTypeKey: string;
   refreshEnabledKey: string;
   useCookies: boolean;
@@ -169,6 +195,105 @@ export class DevAuthClient {
    * @returns An unsubscribe function
    */
   onAuthStateChanged(callback: (user: AuthUser | null) => void): () => void;
+
+  /**
+   * Get active organization from local storage
+   */
+  getActiveOrg(): ClientOrg | null;
+
+  /**
+   * List all organizations current user belongs to
+   */
+  listOrgs(): Promise<ClientOrg[]>;
+
+  /**
+   * Create a new organization
+   */
+  createOrg(params: {
+    name: string;
+    slug?: string;
+    logoUrl?: string;
+    metadata?: Record<string, any>;
+  }): Promise<{ success: boolean; organization: ClientOrg; member: ClientOrgMember }>;
+
+  /**
+   * Get organization details and members
+   */
+  getOrg(orgId: string): Promise<{
+    success: boolean;
+    organization: ClientOrg;
+    member: ClientOrgMember;
+    members: ClientOrgMember[];
+  }>;
+
+  /**
+   * Switch active workspace and receive a new tenant-scoped token
+   */
+  switchOrg(orgId: string): Promise<{
+    success: boolean;
+    token: string;
+    organization: ClientOrg;
+    member: ClientOrgMember;
+  }>;
+
+  /**
+   * Send an invitation to join the organization
+   */
+  inviteMember(
+    orgId: string,
+    params: { email: string; role?: string }
+  ): Promise<{ success: boolean; invitation: any; devModeInviteToken?: string }>;
+
+  /**
+   * Accept an invitation token and join an organization
+   */
+  joinOrg(token: string): Promise<{
+    success: boolean;
+    token: string;
+    organization: ClientOrg;
+    member: ClientOrgMember;
+  }>;
+
+  /**
+   * List pending invitations for an organization
+   */
+  listInvitations(orgId: string): Promise<any[]>;
+
+  /**
+   * Revoke a pending invitation
+   */
+  revokeInvitation(orgId: string, inviteId: string): Promise<{ success: boolean }>;
+
+  /**
+   * Update member role
+   */
+  updateMemberRole(
+    orgId: string,
+    userId: string,
+    role: string
+  ): Promise<{ success: boolean; member: ClientOrgMember }>;
+
+  /**
+   * Remove member from organization
+   */
+  removeMember(orgId: string, userId: string): Promise<{ success: boolean }>;
+
+  /**
+   * Resolve Enterprise SSO connection by user email or corporate domain
+   */
+  resolveSso(
+    emailOrDomain: string,
+    relayState?: string
+  ): Promise<{ success: boolean; type: "SAML" | "OIDC"; redirectUrl: string; connectionId: string }>;
+
+  /**
+   * Redirect user to corporate IdP for Single Sign-On
+   */
+  loginWithSso(
+    emailOrDomain: string,
+    relayState?: string
+  ): Promise<{ success: boolean; type: "SAML" | "OIDC"; redirectUrl: string; connectionId: string }>;
 }
 
 export function createDevAuthClient(options?: DevAuthClientOptions): DevAuthClient;
+

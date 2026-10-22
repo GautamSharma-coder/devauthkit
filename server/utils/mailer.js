@@ -103,6 +103,75 @@ async function sendOTP({ email, otp, magicLinkUrl }) {
   return { success: true, devMode: false, provider: "smtp" };
 }
 
+/**
+ * Send an organization invitation email or print to console if in devMode.
+ * @param {Object} params - { email, organizationName, role, inviterEmail, inviteLink, inviteToken }
+ * @returns {Promise<{ success: boolean, devMode?: boolean }>}
+ */
+async function sendOrgInvitation({ email, organizationName, role, inviterEmail, inviteLink, inviteToken }) {
+  const isDevMode = config.get("devMode");
+  const customMailer = config.get("mailer");
+  const emailProvider = config.get("emailProvider");
+  const resendApiKey = config.get("resendApiKey");
+
+  if (typeof customMailer === "function") {
+    try {
+      await customMailer({ email, organizationName, role, inviterEmail, inviteLink, inviteToken });
+      return { success: true };
+    } catch {}
+  }
+
+  if (isDevMode) {
+    console.log("\n" + "=".repeat(52));
+    console.log("  [DevAuthKit] 🏢 DEV MODE ORG INVITATION");
+    console.log("=".repeat(52));
+    console.log(`  To:           ${email}`);
+    console.log(`  Organization: ${organizationName}`);
+    console.log(`  Role:         ${role}`);
+    if (inviteLink) {
+      console.log(`  Invite Link:  ${inviteLink}`);
+    }
+    console.log(`  Invite Token: ${inviteToken}`);
+    console.log("  Expires:      7 days");
+    console.log("=".repeat(52) + "\n");
+    return { success: true, devMode: true };
+  }
+
+  if (emailProvider === "resend" && resendApiKey) {
+    const fromEmail = config.get("fromEmail") || "onboarding@resend.dev";
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #1e293b; margin-top: 0;">You've been invited! 🏢</h2>
+        <p style="color: #475569; font-size: 15px;">You have been invited to join <strong>${organizationName}</strong> as a <strong>${role}</strong>.</p>
+        ${inviteLink ? `
+        <div style="margin: 24px 0; text-align: center;">
+          <a href="${inviteLink}" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block;">Join Workspace</a>
+        </div>
+        ` : ""}
+        <p style="color: #64748b; font-size: 13px;">Invitation Token: <code>${inviteToken}</code></p>
+      </div>
+    `;
+
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: [email],
+        subject: `Invitation to join ${organizationName}`,
+        html
+      })
+    });
+    return { success: true, devMode: false, provider: "resend" };
+  }
+
+  return { success: true, devMode: false };
+}
+
 module.exports = {
-  sendOTP
+  sendOTP,
+  sendOrgInvitation
 };

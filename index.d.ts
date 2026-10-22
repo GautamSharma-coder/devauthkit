@@ -613,6 +613,197 @@ export interface DevAuthConfigOptions {
   mfaIssuer?: string;
   /** Step-up token lifetime in seconds. @default 300 */
   mfaStepUpExpiresInSeconds?: number;
+
+  /**
+   * Enable multi-tenant organizations & workspaces.
+   * Auto-provisions in-memory organization store in devMode unless organizationStore is provided.
+   * @default false
+   */
+  organizations?: boolean;
+
+  /**
+   * Persistent store for organizations, memberships, and invitations.
+   * Required in production when organizations is true.
+   */
+  organizationStore?: OrganizationStore;
+
+  /** Custom role permission map overrides */
+  orgRoles?: Record<string, string[]>;
+
+  /**
+   * Enable cryptographically signed outbound webhooks (HMAC-SHA256, Svix/Stripe standard).
+   * Auto-provisions MemoryWebhookStore unless webhookStore is provided.
+   * @default false
+   */
+  webhooks?: boolean;
+
+  /**
+   * Persistent store for webhook endpoints and delivery logs.
+   * Required in production when webhooks is true.
+   */
+  webhookStore?: WebhookStore;
+
+  /** Custom webhook dispatcher instance */
+  webhookDispatcher?: any;
+
+  /**
+   * Enable Enterprise SSO (SAML 2.0 & OIDC).
+   * Auto-provisions MemorySsoStore unless ssoStore is provided.
+   * @default false
+   */
+  sso?: boolean | { store?: any; maxClockSkewSeconds?: number; signingCert?: string };
+
+  /**
+   * Persistent store for Enterprise SSO connections, anti-replay assertion tracking, and SCIM mappings.
+   */
+  ssoStore?: any;
+
+  /**
+   * Enable SCIM 2.0 Directory Sync protocol engine (RFC 7643 & RFC 7644).
+   * Auto-provisions MemorySsoStore unless ssoStore is provided.
+   * @default false
+   */
+  scim?: boolean;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl?: string | null;
+  metadata?: Record<string, any>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OrganizationMember {
+  id: string;
+  orgId: string;
+  userId: string;
+  role: "owner" | "admin" | "member" | "viewer" | string;
+  email?: string;
+  joinedAt: number;
+}
+
+export interface OrganizationInvitation {
+  id: string;
+  orgId: string;
+  email: string;
+  role: string;
+  inviterId: string;
+  tokenHash: string;
+  expiresAt: number;
+  createdAt: number;
+}
+
+export interface OrganizationStore {
+  createOrg(params: { name: string; slug?: string; logoUrl?: string; metadata?: Record<string, any>; ownerUserId: string; ownerEmail?: string }): Promise<{ organization: Organization; member: OrganizationMember }>;
+  getOrgById(id: string): Promise<Organization | null>;
+  getOrgBySlug(slug: string): Promise<Organization | null>;
+  listUserOrgs(userId: string): Promise<Array<Organization & { role: string; joinedAt: number }>>;
+  updateOrg(id: string, updates: Partial<Pick<Organization, "name" | "slug" | "logoUrl" | "metadata">>): Promise<Organization>;
+  deleteOrg(id: string): Promise<boolean>;
+  getMember(orgId: string, userId: string): Promise<OrganizationMember | null>;
+  listMembers(orgId: string): Promise<OrganizationMember[]>;
+  addMember(orgId: string, userId: string, role: string, email?: string): Promise<OrganizationMember>;
+  updateMemberRole(orgId: string, userId: string, role: string): Promise<OrganizationMember>;
+  removeMember(orgId: string, userId: string): Promise<boolean>;
+  createInvitation(params: { orgId: string; email: string; role: string; inviterId: string; tokenHash: string; expiresAt: number }): Promise<OrganizationInvitation>;
+  getInvitationByTokenHash(tokenHash: string): Promise<OrganizationInvitation | null>;
+  listInvitations(orgId: string): Promise<Array<Omit<OrganizationInvitation, "tokenHash">>>;
+  deleteInvitation(id: string): Promise<boolean>;
+}
+
+export class MemoryOrganizationStore implements OrganizationStore {
+  createOrg(params: { name: string; slug?: string; logoUrl?: string; metadata?: Record<string, any>; ownerUserId: string; ownerEmail?: string }): Promise<{ organization: Organization; member: OrganizationMember }>;
+  getOrgById(id: string): Promise<Organization | null>;
+  getOrgBySlug(slug: string): Promise<Organization | null>;
+  listUserOrgs(userId: string): Promise<Array<Organization & { role: string; joinedAt: number }>>;
+  updateOrg(id: string, updates: Partial<Pick<Organization, "name" | "slug" | "logoUrl" | "metadata">>): Promise<Organization>;
+  deleteOrg(id: string): Promise<boolean>;
+  getMember(orgId: string, userId: string): Promise<OrganizationMember | null>;
+  listMembers(orgId: string): Promise<OrganizationMember[]>;
+  addMember(orgId: string, userId: string, role: string, email?: string): Promise<OrganizationMember>;
+  updateMemberRole(orgId: string, userId: string, role: string): Promise<OrganizationMember>;
+  removeMember(orgId: string, userId: string): Promise<boolean>;
+  createInvitation(params: { orgId: string; email: string; role: string; inviterId: string; tokenHash: string; expiresAt: number }): Promise<OrganizationInvitation>;
+  getInvitationByTokenHash(tokenHash: string): Promise<OrganizationInvitation | null>;
+  listInvitations(orgId: string): Promise<Array<Omit<OrganizationInvitation, "tokenHash">>>;
+  deleteInvitation(id: string): Promise<boolean>;
+  clear(): void;
+}
+
+export interface WebhookEndpoint {
+  id: string;
+  url: string;
+  secret: string;
+  events: string[];
+  active: boolean;
+  metadata?: Record<string, any>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  endpointId: string;
+  eventId: string;
+  event: string;
+  payload: string;
+  statusCode: number | null;
+  success: boolean;
+  error?: string | null;
+  attempt: number;
+  durationMs: number;
+  timestamp: number;
+}
+
+export interface WebhookStore {
+  createEndpoint(data: {
+    url: string;
+    secret?: string;
+    events?: string | string[];
+    metadata?: Record<string, any>;
+  }): Promise<WebhookEndpoint>;
+  getEndpoint(id: string): Promise<WebhookEndpoint | null>;
+  listEndpoints(): Promise<WebhookEndpoint[]>;
+  updateEndpoint(
+    id: string,
+    updates: Partial<{
+      url: string;
+      secret: string;
+      events: string[];
+      active: boolean;
+      metadata: Record<string, any>;
+    }>
+  ): Promise<WebhookEndpoint | null>;
+  deleteEndpoint(id: string): Promise<boolean>;
+  recordDelivery(data: Omit<WebhookDelivery, "id">): Promise<WebhookDelivery>;
+  listDeliveries(endpointId: string, limit?: number): Promise<WebhookDelivery[]>;
+}
+
+export class MemoryWebhookStore implements WebhookStore {
+  createEndpoint(data: {
+    url: string;
+    secret?: string;
+    events?: string | string[];
+    metadata?: Record<string, any>;
+  }): Promise<WebhookEndpoint>;
+  getEndpoint(id: string): Promise<WebhookEndpoint | null>;
+  listEndpoints(): Promise<WebhookEndpoint[]>;
+  updateEndpoint(
+    id: string,
+    updates: Partial<{
+      url: string;
+      secret: string;
+      events: string[];
+      active: boolean;
+      metadata: Record<string, any>;
+    }>
+  ): Promise<WebhookEndpoint | null>;
+  deleteEndpoint(id: string): Promise<boolean>;
+  recordDelivery(data: Omit<WebhookDelivery, "id">): Promise<WebhookDelivery>;
+  listDeliveries(endpointId: string, limit?: number): Promise<WebhookDelivery[]>;
 }
 
 export interface DpopReplayStore {
@@ -638,6 +829,9 @@ export interface AuthenticatedUser {
 
 export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
+  org?: Organization;
+  organization?: Organization;
+  orgMember?: OrganizationMember;
   dpop?: {
     jkt: string;
     payload: Record<string, any>;
@@ -666,6 +860,15 @@ export const requireAuth: AuthMiddleware;
 /** Require an authenticated request with a valid short-lived MFA step-up token. */
 export const requireMfa: AuthMiddleware;
 export const requireDPoP: AuthMiddleware;
+export const requireOrg: AuthMiddleware;
+export function requireOrgRole(
+  allowedRoles: string | string[],
+  options?: { errorMessage?: string }
+): AuthMiddleware;
+export function requireOrgPermission(
+  requiredPermission: string,
+  options?: { errorMessage?: string }
+): AuthMiddleware;
 export const checkConfig: (options?: DevAuthConfigOptions) => ConfigCheckResult;
 
 export interface DevAuthKitInstance {
@@ -675,6 +878,9 @@ export interface DevAuthKitInstance {
   requireMfa: AuthMiddleware;
   requireDPoP: AuthMiddleware;
   requireRole: typeof requireRole;
+  requireOrg: AuthMiddleware;
+  requireOrgRole: typeof requireOrgRole;
+  requireOrgPermission: typeof requireOrgPermission;
   devAuthKit: DevAuthKitInstance;
   config: {
     set: (options?: DevAuthConfigOptions) => DevAuthConfigOptions;
@@ -691,7 +897,18 @@ export interface DevAuthKitInstance {
   RedisRateLimitStore: typeof RedisRateLimitStore;
   RedisDpopReplayStore: typeof RedisDpopReplayStore;
   MemoryDpopReplayStore: typeof MemoryDpopReplayStore;
+  MemoryOrganizationStore: typeof MemoryOrganizationStore;
+  MemoryWebhookStore: typeof MemoryWebhookStore;
+  CloudflareD1WebhookStore: any;
+  WebhookDispatcher: any;
+  emitWebhookEvent: (event: string, data: any) => Promise<string | null>;
+  webhooks: any;
+  organizations: any;
   dpop: any;
+  sso: any;
+  scim: any;
+  MemorySsoStore: any;
+  CloudflareD1SsoStore: any;
 }
 
 export interface ConfigCheckIssue {
@@ -711,4 +928,14 @@ export interface ConfigCheckResult {
 declare const devAuthKit: DevAuthKitInstance;
 
 export default devAuthKit;
-export { devAuthKit, MemoryDpopReplayStore, checkConfig };
+export {
+  devAuthKit,
+  MemoryDpopReplayStore,
+  MemoryOrganizationStore,
+  MemoryWebhookStore,
+  MemorySsoStore,
+  checkConfig,
+  requireOrg,
+  requireOrgRole,
+  requireOrgPermission
+};

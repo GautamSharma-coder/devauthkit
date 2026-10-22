@@ -70,6 +70,71 @@ router.post("/passkeys/authenticate/verify", rateLimit("passkeyAuthenticationVer
 router.get("/passkeys", rateLimit("passkeyList"), requireAuth, listPasskeys);
 router.delete("/passkeys/:credentialId", rateLimit("passkeyDelete"), requireAuth, deletePasskey);
 
+// Multi-Tenancy & Organizations routes
+const orgController = require("../controllers/organizationController");
+router.post("/orgs", requireAuth, orgController.createOrg);
+router.get("/orgs", requireAuth, orgController.listUserOrgs);
+router.post("/orgs/join", requireAuth, orgController.joinOrg);
+router.get("/orgs/:id", requireAuth, orgController.getOrg);
+router.patch("/orgs/:id", requireAuth, orgController.updateOrg);
+router.delete("/orgs/:id", requireAuth, orgController.deleteOrg);
+router.post("/orgs/:id/switch", requireAuth, orgController.switchOrg);
+router.post("/orgs/:id/invites", requireAuth, orgController.inviteMember);
+router.get("/orgs/:id/invites", requireAuth, orgController.listInvitations);
+router.delete("/orgs/:id/invites/:inviteId", requireAuth, orgController.revokeInvitation);
+router.patch("/orgs/:id/members/:userId", requireAuth, orgController.updateMemberRole);
+router.delete("/orgs/:id/members/:userId", requireAuth, orgController.removeMember);
+
+// Cryptographically Signed Webhooks management routes
+const webhookController = require("../controllers/webhookController");
+router.post("/webhooks", requireAuth, webhookController.createEndpoint);
+router.get("/webhooks", requireAuth, webhookController.listEndpoints);
+router.get("/webhooks/:id", requireAuth, webhookController.getEndpoint);
+router.patch("/webhooks/:id", requireAuth, webhookController.updateEndpoint);
+router.delete("/webhooks/:id", requireAuth, webhookController.deleteEndpoint);
+router.get("/webhooks/:id/deliveries", requireAuth, webhookController.listDeliveries);
+router.post("/webhooks/:id/test", requireAuth, webhookController.testEndpoint);
+
+// Enterprise SSO (SAML 2.0 & OIDC) routes
+const ssoController = require("../controllers/ssoController");
+router.post("/sso/connections", requireAuth, ssoController.createConnection);
+router.get("/sso/connections", requireAuth, ssoController.listConnections);
+router.get("/sso/connections/:id", requireAuth, ssoController.getConnection);
+router.patch("/sso/connections/:id", requireAuth, ssoController.updateConnection);
+router.delete("/sso/connections/:id", requireAuth, ssoController.deleteConnection);
+router.post("/sso/connections/:id/verify-domain", requireAuth, ssoController.verifyDomain);
+
+// Public SSO Discovery and IdP Handlers
+router.post("/sso/resolve", ssoController.resolveSso);
+router.get("/sso/resolve", ssoController.resolveSso);
+router.get("/sso/saml/:connectionId/metadata.xml", ssoController.getSpMetadata);
+router.get("/sso/saml/metadata.xml", ssoController.getSpMetadata);
+router.post("/sso/saml/:connectionId/acs", ssoController.handleSamlAcs);
+router.post("/sso/saml/acs", ssoController.handleSamlAcs);
+
+// SCIM 2.0 Directory Management & Protocol routes
+const scimController = require("../controllers/scimController");
+router.post("/scim/directories", requireAuth, scimController.createDirectory);
+router.get("/scim/directories", requireAuth, scimController.listDirectories);
+router.get("/scim/directories/:id", requireAuth, scimController.getDirectory);
+router.post("/scim/directories/:id/rotate-token", requireAuth, scimController.rotateToken);
+router.delete("/scim/directories/:id", requireAuth, scimController.deleteDirectory);
+
+// SCIM 2.0 Protocol Endpoints (RFC 7643 & 7644)
+router.get("/scim/v2/ServiceProviderConfig", scimController.getServiceProviderConfig);
+router.get("/scim/v2/Schemas", scimController.getSchemas);
+router.get("/scim/v2/Users", scimController.authenticateScimBearer, scimController.listUsers);
+router.get("/scim/v2/Users/:id", scimController.authenticateScimBearer, scimController.getUser);
+router.post("/scim/v2/Users", scimController.authenticateScimBearer, scimController.createUser);
+router.patch("/scim/v2/Users/:id", scimController.authenticateScimBearer, scimController.patchUser);
+router.put("/scim/v2/Users/:id", scimController.authenticateScimBearer, scimController.patchUser);
+router.delete("/scim/v2/Users/:id", scimController.authenticateScimBearer, scimController.deleteUser);
+router.get("/scim/v2/Groups", scimController.authenticateScimBearer, scimController.listGroups);
+router.get("/scim/v2/Groups/:id", scimController.authenticateScimBearer, scimController.getGroup);
+router.post("/scim/v2/Groups", scimController.authenticateScimBearer, scimController.createGroup);
+router.patch("/scim/v2/Groups/:id", scimController.authenticateScimBearer, scimController.patchGroup);
+router.put("/scim/v2/Groups/:id", scimController.authenticateScimBearer, scimController.patchGroup);
+
 // Profile / Current user
 router.get("/me", requireAuth, getMe);
 

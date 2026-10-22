@@ -615,6 +615,18 @@ h2.section-title {
   border-color: rgba(163, 230, 53, 0.25);
 }
 
+.title-icon.sso-icon {
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+.title-icon.scim-icon {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
 h3.sub-title {
   font-size: 1.15rem;
   font-weight: 600;

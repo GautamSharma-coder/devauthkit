@@ -70,6 +70,10 @@
       <div class="sidebar-group">
         <div class="sidebar-heading">Security & Auth Engines</div>
         <ul class="sidebar-nav">
+          <li><a href="#feature-sso" class="sidebar-link"><span>Enterprise SSO (SAML 2.0)</span> <span class="sidebar-pill">SAML / OIDC</span></a></li>
+          <li><a href="#feature-scim" class="sidebar-link"><span>SCIM 2.0 Directory Sync</span> <span class="sidebar-pill">RFC 7644</span></a></li>
+          <li><a href="#feature-webhooks" class="sidebar-link"><span>Cryptographic Webhooks</span> <span class="sidebar-pill">HMAC</span></a></li>
+          <li><a href="#feature-orgs" class="sidebar-link"><span>Multi-Tenancy & Workspaces</span> <span class="sidebar-pill">B2B</span></a></li>
           <li><a href="#feature-dpop" class="sidebar-link"><span>RFC 9449 DPoP Defense</span> <span class="sidebar-pill">RFC 9449</span></a></li>
           <li><a href="#feature-passkeys" class="sidebar-link"><span>Passkeys & WebAuthn</span></a></li>
           <li><a href="#feature-otp" class="sidebar-link"><span>Passwordless Email OTP</span></a></li>
@@ -339,6 +343,550 @@ Click "Detect Platform Authenticator" to inspect hardware biometric support...
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- Feature: Enterprise SSO (SAML 2.0 & Enterprise OIDC) -->
+      <section class="doc-section" id="feature-sso">
+        <h2 class="section-title">
+          <span class="title-icon sso-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </span>
+          Enterprise SSO (SAML 2.0 & Enterprise OIDC)
+        </h2>
+        <p class="section-desc">
+          Zero-fee, self-hosted enterprise Single Sign-On engine for Okta, Microsoft Entra ID (Azure AD), Google Workspace, OneLogin, and PingFederate. Features pure-JS XML Exclusive Canonicalization (C14N), RSA-SHA256 signature verification, dual rolling X.509 certificate rollover, and strict defenses against XXE, XML Signature Wrapping (XSW), and anti-replay attacks.
+        </p>
+
+        <div class="callout">
+          <div class="callout-content">
+            <div class="callout-title">Enterprise SSO Architecture & Zero Enterprise Tax</div>
+            • <strong>Zero Enterprise Tax</strong>: Replaces WorkOS ($125/conn/mo) and Auth0 Enterprise ($800+/mo) with a completely self-hosted, MIT-licensed engine.<br />
+            • <strong>Zero Native C++ Dependencies</strong>: 100% pure JavaScript XML canonicalization (C14N: <code>http://www.w3.org/2001/10/xml-exc-c14n#</code>) and cryptographic verification — runs seamlessly on Node.js, Express, and Cloudflare Workers (edge compute).<br />
+            • <strong>Multi-Tenant SAML 2.0 Service Provider (SP)</strong>: Dynamic SP Metadata XML generation at <code>/auth/sso/saml/:id/metadata.xml</code> with entity ID and ACS URL.<br />
+            • <strong>Universal Domain Routing</strong>: Automatically resolves enterprise IdPs via <code>resolveSso({ email })</code> with DNS TXT ownership verification (<code>_devauth-verify.&lt;domain&gt;</code>).<br />
+            • <strong>Strict Cryptographic Security</strong>: XML Signature Wrapping (XSW) elimination, anti-replay assertion ID tracking, 5-minute clock skew tolerance, and dual rolling X.509 certificate rollover.<br />
+            • <strong>JIT User & Org Provisioning</strong>: Automatic tenant account creation, organization binding, and tenant-scoped JWT generation upon SAML assertion.
+          </div>
+        </div>
+
+        <h3 class="sub-title">1. Server Setup (Express & Hono)</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <div class="code-header-left">
+              <div class="code-dots">
+                <span class="code-dot code-dot-red"></span>
+                <span class="code-dot code-dot-yellow"></span>
+                <span class="code-dot code-dot-green"></span>
+              </div>
+              <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">server.js</span>
+            </div>
+            <button class="code-copy-btn">Copy</button>
+          </div>
+          <pre class="code-block"><code><span class="tok-kw">const</span> express = <span class="tok-fn">require</span>(<span class="tok-str">"express"</span>);
+<span class="tok-kw">const</span> devAuthKit = <span class="tok-fn">require</span>(<span class="tok-str">"devauthkit"</span>);
+<span class="tok-kw">const</span> { MemorySsoStore } = <span class="tok-fn">require</span>(<span class="tok-str">"devauthkit/sso"</span>);
+
+<span class="tok-kw">const</span> app = <span class="tok-fn">express</span>();
+<span class="tok-fn">devAuthKit</span>(app, {
+  <span class="tok-prop">jwtSecret</span>: process.env.JWT_SECRET,
+  <span class="tok-prop">sso</span>: <span class="tok-val">true</span>, <span class="tok-com">// ✨ Enables SAML 2.0 / OIDC SSO & domain routing</span>
+  <span class="tok-prop">ssoStore</span>: <span class="tok-kw">new</span> <span class="tok-fn">MemorySsoStore</span>(), <span class="tok-com">// Or CloudflareD1SsoStore for Workers</span>
+  <span class="tok-prop">spEntityId</span>: <span class="tok-str">"https://api.yourdomain.com/auth/sso/sp"</span>,
+  <span class="tok-prop">spAcsUrl</span>: <span class="tok-str">"https://api.yourdomain.com/auth/sso/saml/acs"</span>
+});</code></pre>
+        </div>
+
+        <h3 class="sub-title">2. Registering an Enterprise IdP Connection</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <div class="code-header-left">
+              <div class="code-dots">
+                <span class="code-dot code-dot-red"></span>
+                <span class="code-dot code-dot-yellow"></span>
+                <span class="code-dot code-dot-green"></span>
+              </div>
+              <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">admin-sso-setup.js</span>
+            </div>
+            <button class="code-copy-btn">Copy</button>
+          </div>
+          <pre class="code-block"><code><span class="tok-com">// Admin endpoint to register Okta, Azure AD, or Google Workspace connection</span>
+<span class="tok-kw">const</span> res = <span class="tok-kw">await</span> <span class="tok-fn">fetch</span>(<span class="tok-str">"https://api.yourdomain.com/auth/sso/connections"</span>, {
+  <span class="tok-prop">method</span>: <span class="tok-str">"POST"</span>,
+  <span class="tok-prop">headers</span>: { <span class="tok-str">"Content-Type"</span>: <span class="tok-str">"application/json"</span>, <span class="tok-str">"Authorization"</span>: <span class="tok-str">"Bearer "</span> + adminJwt },
+  <span class="tok-prop">body</span>: JSON.<span class="tok-fn">stringify</span>({
+    <span class="tok-prop">name</span>: <span class="tok-str">"Acme Corp Okta"</span>,
+    <span class="tok-prop">type</span>: <span class="tok-str">"saml"</span>,
+    <span class="tok-prop">entityId</span>: <span class="tok-str">"http://www.okta.com/exk123456789"</span>,
+    <span class="tok-prop">ssoUrl</span>: <span class="tok-str">"https://acme.okta.com/app/acmeprod_app/exk123456789/sso/saml"</span>,
+    <span class="tok-prop">certificate</span>: <span class="tok-str">"-----BEGIN CERTIFICATE-----\nMIIDpDCCAoygAwIBAgIGAX...\n-----END CERTIFICATE-----"</span>,
+    <span class="tok-prop">allowedDomains</span>: [<span class="tok-str">"acme.com"</span>],
+    <span class="tok-prop">organizationId</span>: <span class="tok-str">"org_acme_corp"</span>
+  })
+});
+
+<span class="tok-kw">const</span> { connection } = <span class="tok-kw">await</span> res.<span class="tok-fn">json</span>();
+<span class="tok-com">// SP Metadata XML is now live at: /auth/sso/saml/${connection.id}/metadata.xml</span>
+<span class="tok-com">// ACS Endpoint is now live at: /auth/sso/saml/${connection.id}/acs</span></code></pre>
+        </div>
+
+        <h3 class="sub-title">3. Frontend Universal Domain Routing</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <div class="code-header-left">
+              <div class="code-dots">
+                <span class="code-dot code-dot-red"></span>
+                <span class="code-dot code-dot-yellow"></span>
+                <span class="code-dot code-dot-green"></span>
+              </div>
+              <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">client.js</span>
+            </div>
+            <button class="code-copy-btn">Copy</button>
+          </div>
+          <pre class="code-block"><code><span class="tok-kw">import</span> { createDevAuthClient } <span class="tok-kw">from</span> <span class="tok-str">"devauthkit/client"</span>;
+
+<span class="tok-kw">const</span> devauth = <span class="tok-fn">createDevAuthClient</span>({ <span class="tok-prop">baseUrl</span>: <span class="tok-str">"https://api.yourdomain.com"</span> });
+
+<span class="tok-kw">async function</span> <span class="tok-fn">handleLogin</span>(email) {
+  <span class="tok-com">// Automatically detects if email domain belongs to an enterprise SSO connection</span>
+  <span class="tok-kw">const</span> sso = <span class="tok-kw">await</span> devauth.<span class="tok-fn">resolveSso</span>({ email });
+  
+  <span class="tok-kw">if</span> (sso.isEnterprise) {
+    <span class="tok-com">// Redirects browser to Okta / Azure AD with signed Deflated SAML AuthnRequest</span>
+    devauth.<span class="tok-fn">loginWithSso</span>(sso.connection.id, { <span class="tok-prop">redirectUrl</span>: <span class="tok-str">"/dashboard"</span> });
+  } <span class="tok-kw">else</span> {
+    <span class="tok-com">// Fall back to Passwordless OTP, Magic Link, or Biometric Passkey</span>
+    <span class="tok-kw">await</span> devauth.<span class="tok-fn">sendOtp</span>({ email });
+  }
+}</code></pre>
+        </div>
+
+        <h3 class="sub-title">4. Enterprise SSO REST Endpoints</h3>
+        <div class="table-wrapper">
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Endpoint</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/auth/sso/connections</code></td>
+                <td>Register an IdP (SAML 2.0 / OIDC) with dual certificates &amp; domain bindings</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/auth/sso/connections</code></td>
+                <td>List all active enterprise SSO connections</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/auth/sso/resolve?domain=acme.com</code></td>
+                <td>Resolve corporate domain to active IdP connection (public endpoint)</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/auth/sso/saml/:id/metadata.xml</code></td>
+                <td>Dynamic SP Metadata XML with entity ID and ACS URL</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/auth/sso/saml/:id/login</code></td>
+                <td>Generates Deflate-compressed Base64 AuthnRequest &amp; redirects to IdP</td>
+              </tr>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/auth/sso/saml/:id/acs</code></td>
+                <td>Assertion Consumer Service (C14N verification, JIT provisioning &amp; JWT issue)</td>
+              </tr>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/auth/sso/domains/:id/verify</code></td>
+                <td>Validate DNS TXT record (<code>_devauth-verify.&lt;domain&gt;</code>) for domain ownership</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Feature: SCIM 2.0 Directory Sync -->
+      <section class="doc-section" id="feature-scim">
+        <h2 class="section-title">
+          <span class="title-icon scim-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </span>
+          SCIM 2.0 Directory Sync (RFC 7643 / RFC 7644)
+        </h2>
+        <p class="section-desc">
+          Automated user and group lifecycle provisioning compliant with standard RFC 7643 and RFC 7644 protocols. Enables Okta, Microsoft Entra ID (Azure AD), and OneLogin to automatically provision accounts, update profile attributes, sync group memberships, and trigger <strong>instant deprovisioning cascades</strong> when employees leave the company.
+        </p>
+
+        <div class="callout">
+          <div class="callout-content">
+            <div class="callout-title">Core SCIM 2.0 Architecture & Deprovisioning Defense</div>
+            • <strong>Instant Deprovisioning Cascade</strong>: Setting <code>active: false</code> in Okta immediately removes workspace memberships and purges all active refresh tokens and sessions across all user devices.<br />
+            • <strong>High-Entropy Bearer Tokens</strong>: SCIM directories authenticate via 256-bit cryptographically secure tokens (<code>scim_...</code>) stored securely as SHA-256 hashes.<br />
+            • <strong>RFC 7643 / 7644 Compliance</strong>: Implements official schemas, ServiceProviderConfig, Users, and Groups endpoints conforming to enterprise IdP requirements.<br />
+            • <strong>RFC 7644 PATCH Operations</strong>: Parses complex JSON-Patch replace operations (e.g., <code>operations: [{ op: "replace", path: "active", value: false }]</code>).<br />
+            • <strong>Multi-Tenant Storage Adapters</strong>: Zero-latency in-memory and Cloudflare D1 SQL adapters support directory-to-organization tenancy binding.
+          </div>
+        </div>
+
+        <h3 class="sub-title">1. Server Setup (Express & Hono)</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <div class="code-header-left">
+              <div class="code-dots">
+                <span class="code-dot code-dot-red"></span>
+                <span class="code-dot code-dot-yellow"></span>
+                <span class="code-dot code-dot-green"></span>
+              </div>
+              <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">server.js</span>
+            </div>
+            <button class="code-copy-btn">Copy</button>
+          </div>
+          <pre class="code-block"><code><span class="tok-kw">const</span> devAuthKit = <span class="tok-fn">require</span>(<span class="tok-str">"devauthkit"</span>);
+<span class="tok-kw">const</span> { MemorySsoStore } = <span class="tok-fn">require</span>(<span class="tok-str">"devauthkit/sso"</span>);
+
+<span class="tok-fn">devAuthKit</span>(app, {
+  <span class="tok-prop">jwtSecret</span>: process.env.JWT_SECRET,
+  <span class="tok-prop">scim</span>: <span class="tok-val">true</span>, <span class="tok-com">// ✨ Mounts /scim/v2 endpoints with application/scim+json support</span>
+  <span class="tok-prop">ssoStore</span>: <span class="tok-kw">new</span> <span class="tok-fn">MemorySsoStore</span>()
+});</code></pre>
+        </div>
+
+        <h3 class="sub-title">2. Provisioning SCIM Directory for an Enterprise Customer</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <div class="code-header-left">
+              <div class="code-dots">
+                <span class="code-dot code-dot-red"></span>
+                <span class="code-dot code-dot-yellow"></span>
+                <span class="code-dot code-dot-green"></span>
+              </div>
+              <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">admin-scim-setup.js</span>
+            </div>
+            <button class="code-copy-btn">Copy</button>
+          </div>
+          <pre class="code-block"><code><span class="tok-com">// Create a SCIM directory for an enterprise organization</span>
+<span class="tok-kw">const</span> res = <span class="tok-kw">await</span> <span class="tok-fn">fetch</span>(<span class="tok-str">"https://api.yourdomain.com/auth/scim/directories"</span>, {
+  <span class="tok-prop">method</span>: <span class="tok-str">"POST"</span>,
+  <span class="tok-prop">headers</span>: { <span class="tok-str">"Content-Type"</span>: <span class="tok-str">"application/json"</span>, <span class="tok-str">"Authorization"</span>: <span class="tok-str">"Bearer "</span> + adminJwt },
+  <span class="tok-prop">body</span>: JSON.<span class="tok-fn">stringify</span>({
+    <span class="tok-prop">name</span>: <span class="tok-str">"Acme Corp Okta SCIM"</span>,
+    <span class="tok-prop">organizationId</span>: <span class="tok-str">"org_acme_corp"</span>
+  })
+});
+
+<span class="tok-kw">const</span> { directory, token } = <span class="tok-kw">await</span> res.<span class="tok-fn">json</span>();
+<span class="tok-com">// Give these credentials to the Enterprise IT Administrator:</span>
+<span class="tok-com">// SCIM 2.0 Base URL: https://api.yourdomain.com/scim/v2</span>
+<span class="tok-com">// SCIM Bearer Token: scim_live_... (only shown once)</span></code></pre>
+        </div>
+
+        <h3 class="sub-title">3. Instant Deprovisioning & Session Purge Cascade</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <div class="code-header-left">
+              <div class="code-dots">
+                <span class="code-dot code-dot-red"></span>
+                <span class="code-dot code-dot-yellow"></span>
+                <span class="code-dot code-dot-green"></span>
+              </div>
+              <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">IdP Deprovisioning Flow (RFC 7644 PATCH)</span>
+            </div>
+            <button class="code-copy-btn">Copy</button>
+          </div>
+          <pre class="code-block"><code><span class="tok-com">// Okta / Azure AD sends RFC 7644 PATCH request when employee departs:</span>
+<span class="tok-com">// PATCH /scim/v2/Users/usr_123</span>
+<span class="tok-com">// Authorization: Bearer scim_live_...</span>
+{
+  <span class="tok-prop">"schemas"</span>: [<span class="tok-str">"urn:ietf:params:scim:api:messages:2.0:PatchOp"</span>],
+  <span class="tok-prop">"Operations"</span>: [
+    { <span class="tok-prop">"op"</span>: <span class="tok-str">"replace"</span>, <span class="tok-prop">"path"</span>: <span class="tok-str">"active"</span>, <span class="tok-prop">"value"</span>: <span class="tok-val">false</span> }
+  ]
+}
+
+<span class="tok-com">// DevAuthKit executes the Instant Deprovisioning Cascade:</span>
+<span class="tok-com">// 1. Updates user status: active = false</span>
+<span class="tok-com">// 2. Purges user from organization workspace membership</span>
+<span class="tok-com">// 3. Revokes ALL active refresh tokens across all mobile/desktop devices</span>
+<span class="tok-com">// 4. Dispatches cryptographically signed webhook: user.deprovisioned</span></code></pre>
+        </div>
+
+        <h3 class="sub-title">4. SCIM 2.0 REST Endpoints</h3>
+        <div class="table-wrapper">
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Endpoint</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/scim/v2/ServiceProviderConfig</code></td>
+                <td>RFC 7643 metadata discovery (patch, filter, bulk support)</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/scim/v2/Schemas</code></td>
+                <td>RFC 7643 Core User and Group schema definitions</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/scim/v2/Users</code></td>
+                <td>Filter and paginate enterprise users (<code>filter=userName eq "..."</code>)</td>
+              </tr>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/scim/v2/Users</code></td>
+                <td>Provision a new enterprise user and map to organization</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/scim/v2/Users/:id</code></td>
+                <td>Retrieve single enterprise user profile</td>
+              </tr>
+              <tr>
+                <td><code>PUT</code></td>
+                <td><code>/scim/v2/Users/:id</code></td>
+                <td>Replace enterprise user profile attributes</td>
+              </tr>
+              <tr>
+                <td><code>PATCH</code></td>
+                <td><code>/scim/v2/Users/:id</code></td>
+                <td>Partial update (detects <code>active: false</code> to trigger session purge)</td>
+              </tr>
+              <tr>
+                <td><code>DELETE</code></td>
+                <td><code>/scim/v2/Users/:id</code></td>
+                <td>Deprovision user and delete directory mapping</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/scim/v2/Groups</code></td>
+                <td>List directory user groups and department memberships</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Feature: Cryptographically Signed Webhooks -->
+      <section class="doc-section" id="feature-webhooks">
+        <h2 class="section-title">
+          <span class="title-icon shield-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          </span>
+          Cryptographically Signed Webhooks (HMAC-SHA256)
+        </h2>
+        <p class="section-desc">
+          Enterprise outbound event delivery engine conforming to the Svix / Stripe signature standard (<code>DevAuth-Signature: t=${timestamp},v1=${signature}</code>). Features anti-replay tolerance windows, constant-time verification, wildcard pattern subscriptions, non-blocking asynchronous dispatch, and delivery logging.
+        </p>
+
+        <div class="callout">
+          <div class="callout-content">
+            <div class="callout-title">Core Webhook Security Architecture</div>
+            • <strong>Svix / Stripe Standard</strong>: Headers format signature as <code>DevAuth-Signature: t=...,v1=...</code> over <code>${timestamp}.${rawBody}</code>.<br />
+            • <strong>Constant-Time Verification</strong>: Uses timing-safe equality to eliminate timing side-channel exploits.<br />
+            • <strong>Anti-Replay Defense</strong>: Rejects requests with timestamps outside the tolerance window (default 300s) and future clock skew.<br />
+            • <strong>Zero-Downtime Secret Rolling</strong>: Verifies against any valid <code>v1</code> signature when rotating endpoint secrets.<br />
+            • <strong>Non-Blocking Dispatch</strong>: Dispatches via microtasks without adding latency (&lt; 1ms) to login or organization APIs.
+          </div>
+        </div>
+
+        <h3 class="sub-title">1. Server Configuration</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <div class="code-header-left">
+              <div class="code-dots">
+                <span class="code-dot code-dot-red"></span>
+                <span class="code-dot code-dot-yellow"></span>
+                <span class="code-dot code-dot-green"></span>
+              </div>
+              <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">server.js</span>
+            </div>
+            <button class="code-copy-btn">Copy</button>
+          </div>
+          <pre class="code-block"><code><span class="tok-kw">const</span> devAuthKit = <span class="tok-fn">require</span>(<span class="tok-str">"devauthkit"</span>);
+
+<span class="tok-fn">devAuthKit</span>(app, {
+  <span class="tok-prop">jwtSecret</span>: process.env.JWT_SECRET,
+  <span class="tok-prop">webhooks</span>: <span class="tok-val">true</span> <span class="tok-com">// ✨ Enables /auth/webhooks management & auto-event dispatch</span>
+});</code></pre>
+        </div>
+
+        <h3 class="sub-title">2. Consuming & Verifying Webhooks (createWebhookHandler)</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <div class="code-header-left">
+              <div class="code-dots">
+                <span class="code-dot code-dot-red"></span>
+                <span class="code-dot code-dot-yellow"></span>
+                <span class="code-dot code-dot-green"></span>
+              </div>
+              <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">receiver.js</span>
+            </div>
+            <button class="code-copy-btn">Copy</button>
+          </div>
+          <pre class="code-block"><code><span class="tok-kw">const</span> { createWebhookHandler } = <span class="tok-fn">require</span>(<span class="tok-str">"devauthkit/webhooks"</span>);
+
+app.<span class="tok-fn">post</span>(<span class="tok-str">"/api/webhooks/devauth"</span>, express.<span class="tok-fn">raw</span>({ <span class="tok-prop">type</span>: <span class="tok-str">"application/json"</span> }), <span class="tok-fn">createWebhookHandler</span>({
+  <span class="tok-prop">secret</span>: process.env.DEVAUTH_WEBHOOK_SECRET, <span class="tok-com">// "whsec_..."</span>
+  <span class="tok-prop">toleranceSeconds</span>: 300,
+  <span class="tok-prop">onEvent</span>: <span class="tok-kw">async</span> (event) => {
+    <span class="tok-kw">switch</span> (event.event) {
+      <span class="tok-kw">case</span> <span class="tok-str">"org.created"</span>:
+        <span class="tok-kw">await</span> <span class="tok-fn">provisionTenantResources</span>(event.data.organization);
+        <span class="tok-kw">break</span>;
+      <span class="tok-kw">case</span> <span class="tok-str">"user.authenticated"</span>:
+        <span class="tok-kw">await</span> <span class="tok-fn">syncUserAnalytics</span>(event.data.userId);
+        <span class="tok-kw">break</span>;
+    }
+  }
+}));</code></pre>
+        </div>
+
+        <h3 class="sub-title">3. Webhook REST Management Endpoints</h3>
+        <div class="table-wrapper">
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Endpoint</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/auth/webhooks</code></td>
+                <td>Register endpoint URL and subscribed events (<code>["org.*", "user.*"]</code>)</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/auth/webhooks</code></td>
+                <td>List registered endpoints</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/auth/webhooks/:id</code></td>
+                <td>Get specific endpoint configuration</td>
+              </tr>
+              <tr>
+                <td><code>PATCH</code></td>
+                <td><code>/auth/webhooks/:id</code></td>
+                <td>Update endpoint URL, events filter, or active status</td>
+              </tr>
+              <tr>
+                <td><code>DELETE</code></td>
+                <td><code>/auth/webhooks/:id</code></td>
+                <td>Delete endpoint</td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/auth/webhooks/:id/deliveries</code></td>
+                <td>List recent delivery logs, HTTP status codes, and latencies</td>
+              </tr>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/auth/webhooks/:id/test</code></td>
+                <td>Dispatch an immediate <code>webhook.test</code> ping</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Feature: Multi-Tenancy & Organizations -->
+      <section class="doc-section" id="feature-orgs">
+        <h2 class="section-title">
+          <span class="title-icon key-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M9 8h1M9 12h1M9 16h1M14 8h1M14 12h1M14 16h1M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/></svg>
+          </span>
+          Multi-Tenancy & Organizations (B2B Workspaces)
+        </h2>
+        <p class="section-desc">
+          Turnkey B2B workspace isolation, member invitations with 256-bit cryptographic token hashing, tenant-scoped JWTs, dynamic workspace switching, and org-scoped RBAC/PBAC. Eliminates steep SaaS add-on fees ($$$/month).
+        </p>
+
+        <div class="callout">
+          <div class="callout-content">
+            <div class="callout-title">Core Architecture & Security Highlights</div>
+            • <strong>Tenant-Scoped JWTs</strong>: Switching workspaces issues a token scoped to <code>org_id</code>, <code>org_role</code>, and resolved permissions.<br />
+            • <strong>Cryptographic Invitations</strong>: Secret 256-bit tokens are SHA-256 hashed before storage; raw tokens are never persisted in plaintext.<br />
+            • <strong>Privilege Escalation Defense</strong>: Admins cannot grant the Owner role or demote owners; owners cannot abandon workspaces without transferring ownership.<br />
+            • <strong>RFC 9449 DPoP Continuity</strong>: Preserves client hardware key thumbprints (<code>cnf.jkt</code>) across workspace context shifts.
+          </div>
+        </div>
+
+        <h3 class="sub-title">1. Express Backend Setup</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <div class="code-header-left">
+              <div class="code-dots">
+                <span class="code-dot code-dot-red"></span>
+                <span class="code-dot code-dot-yellow"></span>
+                <span class="code-dot code-dot-green"></span>
+              </div>
+              <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">server.js</span>
+            </div>
+            <button class="code-copy-btn">Copy</button>
+          </div>
+          <pre class="code-block"><code><span class="tok-kw">const</span> devAuthKit = <span class="tok-fn">require</span>(<span class="tok-str">"devauthkit"</span>);
+
+<span class="tok-fn">devAuthKit</span>(app, {
+  <span class="tok-prop">jwtSecret</span>: process.env.JWT_SECRET,
+  <span class="tok-prop">organizations</span>: <span class="tok-val">true</span> <span class="tok-com">// ✨ Enables /auth/orgs endpoints & workspace engine</span>
+});
+
+<span class="tok-kw">const</span> { requireOrg, requireOrgRole, requireOrgPermission } = devAuthKit;
+
+<span class="tok-com">// Context-scoped endpoint (resolves org from token org_id or x-organization-id header)</span>
+app.<span class="tok-fn">get</span>(<span class="tok-str">"/api/projects"</span>, requireOrg, (req, res) => {
+  res.<span class="tok-fn">json</span>({ <span class="tok-prop">workspace</span>: req.org.name, <span class="tok-prop">myRole</span>: req.orgMember.role });
+});
+
+<span class="tok-com">// Granular role check (owner or admin)</span>
+app.<span class="tok-fn">get</span>(<span class="tok-str">"/api/billing"</span>, <span class="tok-fn">requireOrgRole</span>([<span class="tok-str">"owner"</span>, <span class="tok-str">"admin"</span>]), (req, res) => {
+  res.<span class="tok-fn">json</span>({ <span class="tok-prop">invoices</span>: [] });
+});</code></pre>
+        </div>
+
+        <h3 class="sub-title">2. React & Next.js Hook (useOrg)</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <div class="code-header-left">
+              <div class="code-dots">
+                <span class="code-dot code-dot-red"></span>
+                <span class="code-dot code-dot-yellow"></span>
+                <span class="code-dot code-dot-green"></span>
+              </div>
+              <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">WorkspaceSelector.jsx</span>
+            </div>
+            <button class="code-copy-btn">Copy</button>
+          </div>
+          <pre class="code-block"><code><span class="tok-kw">import</span> { useOrg } <span class="tok-kw">from</span> <span class="tok-str">"devauthkit/react"</span>;
+
+<span class="tok-kw">function</span> <span class="tok-fn">WorkspaceSelector</span>() {
+  <span class="tok-kw">const</span> { activeOrg, organizations, switchOrg, createOrg } = <span class="tok-fn">useOrg</span>();
+
+  <span class="tok-kw">return</span> (
+    &lt;select value={activeOrg?.id} onChange={(e) => switchOrg(e.target.value)}&gt;
+      {organizations.map((org) => (
+        &lt;option key={org.id} value={org.id}&gt;
+          {org.name} ({org.role})
+        &lt;/option&gt;
+      ))}
+    &lt;/select&gt;
+  );
+}</code></pre>
         </div>
       </section>
 
@@ -1048,6 +1596,34 @@ app.get(<span class="tok-str">"/api/admin/metrics"</span>, requireAuth, <span cl
                 <td>2+ hours</td>
               </tr>
               <tr>
+                <td><strong>Enterprise SAML 2.0 SSO</strong></td>
+                <td class="highlight-col"><span class="check-pill">✓ Built-in (Zero Fee)</span></td>
+                <td><span class="cross-pill">$125/conn/mo</span></td>
+                <td>Manual Glue</td>
+                <td>Complex XML glue</td>
+              </tr>
+              <tr>
+                <td><strong>SCIM 2.0 Directory Sync</strong></td>
+                <td class="highlight-col"><span class="check-pill">✓ RFC 7643/7644</span></td>
+                <td><span class="cross-pill">Enterprise Tier ($$$)</span></td>
+                <td><span class="cross-pill">—</span></td>
+                <td><span class="cross-pill">—</span></td>
+              </tr>
+              <tr>
+                <td><strong>B2B Workspaces & Orgs</strong></td>
+                <td class="highlight-col"><span class="check-pill">✓ Multi-Tenant + RBAC</span></td>
+                <td><span class="cross-pill">Add-on Fee</span></td>
+                <td>DIY</td>
+                <td><span class="cross-pill">—</span></td>
+              </tr>
+              <tr>
+                <td><strong>Signed Webhooks</strong></td>
+                <td class="highlight-col"><span class="check-pill">✓ Svix/Stripe Standard</span></td>
+                <td>Cloud Dependent</td>
+                <td><span class="cross-pill">—</span></td>
+                <td><span class="cross-pill">—</span></td>
+              </tr>
+              <tr>
                 <td><strong>RFC 9449 DPoP</strong></td>
                 <td class="highlight-col"><span class="check-pill">✓ Built-in</span></td>
                 <td><span class="cross-pill">—</span></td>
@@ -1096,6 +1672,10 @@ app.get(<span class="tok-str">"/api/admin/metrics"</span>, requireAuth, <span cl
         <li><a href="#overview" class="toc-link">Overview</a></li>
         <li><a href="#quickstart" class="toc-link">Quickstart</a></li>
         <li><a href="#sandbox" class="toc-link">Sandbox</a></li>
+        <li><a href="#feature-sso" class="toc-link">Enterprise SSO (SAML)</a></li>
+        <li><a href="#feature-scim" class="toc-link">SCIM 2.0 Directory Sync</a></li>
+        <li><a href="#feature-webhooks" class="toc-link">Cryptographic Webhooks</a></li>
+        <li><a href="#feature-orgs" class="toc-link">Multi-Tenancy & Orgs</a></li>
         <li><a href="#feature-dpop" class="toc-link">RFC 9449 DPoP</a></li>
         <li><a href="#feature-passkeys" class="toc-link">Passkeys & WebAuthn</a></li>
         <li><a href="#feature-otp" class="toc-link">Passwordless OTP</a></li>

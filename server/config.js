@@ -2,6 +2,10 @@
 
 const environment = typeof process === "undefined" ? {} : process.env;
 const { randomString } = require("./utils/webCrypto");
+const { MemoryOrganizationStore } = require("./stores/memoryOrganizationStore");
+const { MemoryWebhookStore } = require("./stores/memoryWebhookStore");
+const { MemorySsoStore } = require("./stores/memorySsoStore");
+const { WebhookDispatcher } = require("./core/webhookDispatcher");
 
 const defaultConfig = {
   corsOrigin: "http://localhost:3001",
@@ -36,6 +40,15 @@ const defaultConfig = {
   magicLinkSuccessURL: undefined,
   refreshTokens: false,
   refreshTokenStore: undefined,
+  organizations: false,
+  organizationStore: undefined,
+  orgRoles: undefined,
+  webhooks: false,
+  webhookStore: undefined,
+  webhookDispatcher: undefined,
+  sso: false,
+  ssoStore: undefined,
+  scim: false,
   dpop: false,
   dpopReplayStore: undefined,
   dpopNonce: undefined,
@@ -127,6 +140,14 @@ module.exports = {
       magicLinkSuccessURL: options.magicLinkSuccessURL || defaultConfig.magicLinkSuccessURL,
       refreshTokens: options.refreshTokens ?? defaultConfig.refreshTokens,
       refreshTokenStore: options.refreshTokenStore,
+      organizations: Boolean(options.organizations || options.organizationStore),
+      organizationStore: options.organizationStore || (options.organizations ? new MemoryOrganizationStore() : undefined),
+      orgRoles: options.orgRoles || defaultConfig.orgRoles,
+      webhooks: Boolean(options.webhooks || options.webhookStore),
+      webhookStore: options.webhookStore || (options.webhooks ? new MemoryWebhookStore() : undefined),
+      sso: Boolean(options.sso || options.ssoStore),
+      ssoStore: options.ssoStore || options.sso?.store || ((options.sso || options.scim) ? new MemorySsoStore() : undefined),
+      scim: Boolean(options.scim || options.ssoStore),
       rateLimit: mergeRateLimitRules(options.rateLimit),
       rateLimitStore: options.rateLimitStore,
       sessionSecret: options.sessionSecret || environment.SESSION_SECRET || defaultConfig.sessionSecret || randomString(32),
@@ -138,6 +159,22 @@ module.exports = {
       resendApiKey: options.resendApiKey || environment.RESEND_API_KEY || "",
       fromEmail: options.fromEmail || environment.FROM_EMAIL || defaultConfig.fromEmail
     };
+
+    if (currentConfig.webhooks && currentConfig.webhookStore) {
+      currentConfig.webhookDispatcher = options.webhookDispatcher || new WebhookDispatcher({
+        store: currentConfig.webhookStore,
+        fetchImpl: options.customFetch
+      });
+
+      if (Array.isArray(options.webhooks?.endpoints)) {
+        for (const ep of options.webhooks.endpoints) {
+          if (ep && ep.url) {
+            currentConfig.webhookStore.createEndpoint(ep).catch?.(() => {});
+          }
+        }
+      }
+    }
+
     return currentConfig;
   },
 

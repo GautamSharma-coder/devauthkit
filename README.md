@@ -33,6 +33,10 @@
 | **Email Providers** | **Resend + SMTP + Custom** | Vendor Cloud | Nodemailer / Custom | Manual |
 | **Dual/Triple Strategy** | **Bearer + httpOnly Cookie + Session** | Proprietary SDK | Session / JWT | Strategy plugins |
 | **Token Theft Defense (DPoP)** | 🛡️ **RFC 9449 Key Binding** | ❌ Bearer only | ❌ Bearer only | ❌ Bearer only |
+| **Multi-Tenancy & Workspaces** | 🏢 **Turnkey B2B Workspaces** | $$$ Add-on Tier | ❌ Complex / Manual | ❌ None |
+| **Webhooks Engine** | 🪝 **HMAC-SHA256 (Svix/Stripe)** | $$$ Enterprise only | ❌ Manual | ❌ None |
+| **Enterprise SSO (SAML 2.0 & OIDC)** | 🛡️ **Zero-Fee / Native SP** | $$$ $125/conn/mo (WorkOS) / $800+/mo | ❌ Complex plugins | ❌ Strategy hell |
+| **SCIM 2.0 Directory Sync** | 👥 **Turnkey RFC 7643 & 7644** | $$$ Enterprise tier | ❌ None | ❌ None |
 | **Database Adapters** | **Prisma + Drizzle + Mongoose** | Vendor Cloud | Adapters required | Manual DB glue |
 | **Frontend Integration** | ✅ **Client SDK + React Hooks** | Proprietary Components | Next.js / React only | ❌ None |
 
@@ -40,6 +44,10 @@
 
 ## ✨ Features
 
+- 🛡️ **Enterprise SSO (SAML 2.0 & OIDC)**: Zero-cost self-hosted alternative to WorkOS ($125/conn/mo) and Auth0 Enterprise ($800+/mo). Multi-tenant Service Provider engine with zero native C++ dependencies (runs on Node.js and Cloudflare Workers). XML Exclusive Canonicalization (C14N), RSA-SHA256 signature verification, dual rolling certificate rollover, universal domain routing (`/auth/sso/resolve`), dynamic SP Metadata XML, and strict defenses against XXE, XSW (XML Signature Wrapping), and replay attacks.
+- 👥 **SCIM 2.0 Directory Sync (RFC 7643 & RFC 7644)**: Turnkey automated enterprise employee lifecycle management. Auto-provisions and synchronizes users and groups from Okta, Azure AD, OneLogin, and PingFederate. Features instantaneous deprovisioning cascade: when an employee is deactivated in the IdP, their organization membership is immediately revoked and all active refresh sessions across clusters are purged.
+- 🪝 **Cryptographically Signed Webhooks**: Outbound event delivery with HMAC-SHA256 signatures (`DevAuth-Signature: t=...,v1=...`), anti-replay tolerance windows, constant-time verification, wildcard routing (`org.*`), non-blocking asynchronous event bus, exponential backoff retries, and delivery logging across Node.js and Cloudflare Workers.
+- 🏢 **Multi-Tenancy & Organizations**: Turnkey B2B workspace isolation, member invitations (cryptographic token hashing), dynamic workspace switching, tenant-scoped JWTs, anti-privilege-escalation roles, and org-scoped RBAC (`requireOrg`, `requireOrgRole`, `requireOrgPermission`).
 - 🛡️ **DPoP Token Theft Defense (RFC 9449)**: Cryptographically binds access tokens to client ECDSA P-256 public keys via `cnf.jkt` thumbprints, instantly neutralizing malware/XSS token theft, replay attacks, and session hijacking.
 - 🔑 **Passwordless Email OTP**: Secure 6-digit codes generated with Node's native `crypto.randomInt`.
 - 🔗 **1-Click Magic Links**: Secure email verification links alongside 6-digit OTPs with single-use token invalidation.
@@ -616,6 +624,335 @@ function Dashboard() {
 
 ---
 
+## 🏢 Multi-Tenancy & Organizations (B2B Workspaces)
+
+DevAuthKit provides out-of-the-box multi-tenant workspace isolation, team invitations, dynamic workspace switching, and tenant-scoped JWT tokens. 
+
+### Why Native Multi-Tenancy?
+- **Zero SaaS Cost**: Replace expensive B2B auth tiers ($$$ per tenant/month).
+- **Tenant-Scoped JWTs**: Switching workspaces instantly issues a token scoped to `org_id`, `org_role`, and resolved permissions, allowing high-performance stateless authorization at your API gateway.
+- **Cryptographic Invitations**: Raw invite tokens (256-bit secure hex) are hashed with SHA-256 before storage to prevent database leak compromise.
+- **Anti-Privilege Escalation**: Admins cannot invite or elevate members to the `owner` role; owners cannot abandon workspaces without transferring ownership.
+- **DPoP Token Continuity**: Preserves client hardware key binding (`cnf.jkt`) across workspace context switches!
+
+### 1. Server Configuration (Express)
+
+Enable with a single flag: `organizations: true`. Defaults to an in-memory store in devMode, or plug in a persistent store:
+
+```javascript
+const devAuthKit = require("devauthkit");
+
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  organizations: true // ✨ Auto-provisions organization endpoints & store
+});
+
+const { requireOrg, requireOrgRole, requireOrgPermission } = devAuthKit;
+
+// 1. Context-scoped endpoint (resolves org via token org_id or x-organization-id header)
+app.get("/api/workspace/data", requireOrg, (req, res) => {
+  res.json({
+    organization: req.org,
+    currentMember: req.orgMember
+  });
+});
+
+// 2. Role-Based Access Control within Organization
+app.get("/api/workspace/settings", requireOrgRole(["owner", "admin"]), (req, res) => {
+  res.json({ success: true, settings: {} });
+});
+
+// 3. Granular Permission-Based Access Control
+app.post("/api/workspace/projects", requireOrgPermission("projects:create"), (req, res) => {
+  res.json({ success: true, project: "Created" });
+});
+```
+
+### 2. Edge / Cloudflare Workers & Hono
+
+Deploy with Cloudflare D1 for edge-native, zero-latency multi-tenancy:
+
+```typescript
+import { Hono } from "hono";
+import { createAuthRouter, requireOrg, requireOrgRole } from "devauthkit/hono";
+import { CloudflareD1OrganizationStore } from "devauthkit/stores/cloudflare-d1-organizations";
+
+const app = new Hono();
+
+app.route("/", createAuthRouter({
+  jwtSecret: env.JWT_SECRET,
+  organizations: true,
+  organizationStore: new CloudflareD1OrganizationStore(env.DB)
+}));
+
+app.get("/api/projects", requireOrg(), (c) => {
+  return c.json({ org: c.get("org"), member: c.get("orgMember") });
+});
+```
+
+### 3. Built-In Multi-Tenant Endpoints
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/auth/orgs` | Create a new organization (creator auto-assigned `owner`) |
+| `GET` | `/auth/orgs` | List organizations the authenticated user belongs to |
+| `GET` | `/auth/orgs/:id` | Get organization details, current member role, and member list |
+| `PATCH` | `/auth/orgs/:id` | Update organization name, slug, logo URL, or metadata |
+| `DELETE` | `/auth/orgs/:id` | Delete organization and cascade remove memberships/invites |
+| `POST` | `/auth/orgs/:id/switch` | Switch active workspace context and receive tenant-scoped JWT |
+| `POST` | `/auth/orgs/:id/invites` | Send team invitation (prints invite code to terminal in `devMode`) |
+| `GET` | `/auth/orgs/:id/invites` | List pending invitations |
+| `DELETE` | `/auth/orgs/:id/invites/:inviteId` | Revoke a pending invitation |
+| `POST` | `/auth/orgs/join` | Redeem invitation token and join workspace |
+| `PATCH` | `/auth/orgs/:id/members/:userId` | Update member role (`admin`, `member`, `viewer`) |
+| `DELETE` | `/auth/orgs/:id/members/:userId` | Remove member from workspace |
+
+### 4. Client SDK & React Hook (`useOrg`)
+
+```jsx
+import { AuthProvider, useAuth, useOrg } from "devauthkit/react";
+import { DevAuthClient } from "devauthkit/client";
+
+const client = new DevAuthClient({ apiUrl: "http://localhost:3000" });
+
+function WorkspaceSelector() {
+  const { activeOrg, organizations, switchOrg, createOrg, inviteMember } = useOrg();
+
+  return (
+    <div>
+      <h3>Active Workspace: {activeOrg?.name || "None Selected"}</h3>
+      <select 
+        value={activeOrg?.id || ""} 
+        onChange={(e) => switchOrg(e.target.value)}
+      >
+        {organizations.map((org) => (
+          <option key={org.id} value={org.id}>
+            {org.name} ({org.role})
+          </option>
+        ))}
+      </select>
+
+      <button onClick={() => createOrg({ name: "New Team Workspace" })}>
+        + Create Workspace
+      </button>
+    </div>
+  );
+}
+```
+
+---
+
+## 🪝 Cryptographically Signed Webhooks Engine (HMAC-SHA256)
+
+DevAuthKit includes an enterprise-grade outbound webhooks engine that automatically signs and dispatches lifecycle events (`org.created`, `org.member_added`, `user.authenticated`, `session.revoked`, etc.) to registered HTTP endpoints.
+
+### Why DevAuthKit Webhooks?
+- **Svix & Stripe Industry Standard**: Signatures formatted as `DevAuth-Signature: t=${timestamp},v1=${signature}` over `${timestamp}.${rawBody}`.
+- **Timing-Safe Constant-Time Verification**: Uses `crypto.timingSafeEqual` / `constantTimeEqual` to prevent timing side-channel attacks.
+- **Anti-Replay Protection**: Strict timestamp tolerance window (default 300s) rejects replay attacks and future clock skew.
+- **Zero-Downtime Secret Rotation**: Headers support multiple `v1` signatures simultaneously, allowing seamless endpoint secret rotation.
+- **Non-Blocking Asynchronous Dispatch**: Emits events via microtasks (`queueMicrotask`) without adding latency (< 1ms) to auth or organization requests.
+- **Exponential Backoff Retries**: Failed deliveries retry with exponential backoff and record full status logs.
+- **Dual Runtime Parity**: Works seamlessly on Express.js (Node.js) and Cloudflare Workers (Hono + Cloudflare D1).
+
+### 1. Enabling Webhooks on Express
+
+```javascript
+const express = require("express");
+const devAuthKit = require("devauthkit");
+
+const app = express();
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  webhooks: true // ✨ Auto-provisions in-memory store in devMode, or pass webhookStore
+});
+```
+
+### 2. Enabling Webhooks on Cloudflare Workers & Hono
+
+```typescript
+import { Hono } from "hono";
+import { createAuthRouter } from "devauthkit/hono";
+import { CloudflareD1WebhookStore } from "devauthkit/stores/cloudflare-d1-webhooks";
+
+const app = new Hono();
+
+app.route("/", createAuthRouter({
+  jwtSecret: env.JWT_SECRET,
+  webhooks: true,
+  webhookStore: new CloudflareD1WebhookStore(env.DB)
+}));
+```
+
+### 3. Built-In Webhook Management Endpoints
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/auth/webhooks` | Register new webhook endpoint URL, event filters, and optional metadata |
+| `GET` | `/auth/webhooks` | List all registered webhook endpoints |
+| `GET` | `/auth/webhooks/:id` | Get specific endpoint details and subscription filters |
+| `PATCH` | `/auth/webhooks/:id` | Update endpoint URL, subscribed events, or active status |
+| `DELETE` | `/auth/webhooks/:id` | Delete endpoint and stop future dispatches |
+| `GET` | `/auth/webhooks/:id/deliveries` | View recent delivery attempt logs, status codes, and latency |
+| `POST` | `/auth/webhooks/:id/test` | Trigger an immediate `webhook.test` ping event |
+
+### 4. Verifying & Receiving Webhooks in your Application
+
+Use `createWebhookHandler` middleware or call `verifyWebhookSignature` directly:
+
+```javascript
+const express = require("express");
+const { createWebhookHandler, verifyWebhookSignature } = require("devauthkit/webhooks");
+
+const app = express();
+
+// Method A: Express Middleware
+app.post("/api/webhooks/devauth", express.raw({ type: "application/json" }), createWebhookHandler({
+  secret: process.env.DEVAUTH_WEBHOOK_SECRET, // "whsec_..."
+  toleranceSeconds: 300,
+  onEvent: async (event, req, res) => {
+    console.log(`Received event: ${event.event} [ID: ${event.id}]`);
+    switch (event.event) {
+      case "org.created":
+        await provisionWorkspace(event.data.organization);
+        break;
+      case "org.member_added":
+        await syncCrmContact(event.data.member);
+        break;
+      case "user.authenticated":
+        await updateLastLogin(event.data.userId);
+        break;
+    }
+  }
+}));
+
+// Method B: Direct verification function
+const verifiedEvent = await verifyWebhookSignature({
+  rawBody: req.rawBody,
+  signatureHeader: req.headers["devauth-signature"],
+  secret: "whsec_...",
+  toleranceSeconds: 300
+});
+```
+
+### 5. Event Catalog & Wildcard Subscriptions
+
+Endpoints can subscribe to exact events, wildcards, or arrays:
+- `*` - Receive all events
+- `org.*` - All organization and member events (`org.created`, `org.updated`, `org.deleted`, `org.member_added`, `org.member_removed`, `org.invitation_created`)
+- `user.*` - Authentication lifecycle (`user.authenticated`, `user.logout`)
+- `session.*` - Session lifecycle (`session.revoked`, `session.revoked_all`)
+
+---
+
+## 🛡️ Enterprise SSO (SAML 2.0 & OIDC) and SCIM 2.0 Directory Sync
+
+DevAuthKit provides a **100% free, self-hosted, multi-tenant Enterprise SSO and SCIM Directory Sync engine** — completely replacing costly third-party vendors like WorkOS ($125/connection/mo) and Auth0 Enterprise ($800+/mo) without any external monthly fees or vendor lock-in.
+
+### 🌟 Key Architectural Capabilities
+- **Zero Native C++ Dependencies**: Runs seamlessly in standard Node.js environments and serverless edge runtimes (Cloudflare Workers, D1).
+- **Hardened SAML 2.0 Service Provider**:
+  - Exclusive XML Canonicalization (C14N: `http://www.w3.org/2001/10/xml-exc-c14n#`).
+  - RSA-SHA256 and RSA-SHA1 digital signature verification.
+  - Dual rolling X.509 certificate rollover with automated zero-downtime promotion.
+  - Strict defenses against **XXE (XML External Entity)** injection and **XSW (XML Signature Wrapping)** attacks.
+  - Anti-replay protection with a 10-minute sliding window cache (`saml_assertion_replays`).
+  - Standard HTTP-Redirect binding with Deflate/Base64 encoding and dynamic SP Metadata XML endpoint.
+- **Universal Domain-Based SSO Discovery**:
+  - Route users automatically by their corporate email domain (e.g. `user@acme.com` ➔ Acme Okta IdP).
+  - Domain ownership verification via DNS TXT records (`_devauth-verify.<domain>`).
+- **SCIM 2.0 Protocol Engine (RFC 7643 & RFC 7644)**:
+  - Full support for Okta, Azure Active Directory / Entra ID, OneLogin, and PingFederate.
+  - Secure high-entropy bearer token authentication (`scim_live_...`) with constant-time SHA-256 verification.
+  - Automated Just-In-Time (JIT) provisioning for users and groups.
+  - **Instant Deprovisioning Cascade**: When an employee is deactivated in the IdP (`PATCH /scim/v2/Users/:id` with `{ active: false }`), DevAuthKit immediately revokes their organization membership and revokes all active refresh token families across clusters.
+
+### 1. Enabling Enterprise SSO & SCIM on Express.js
+
+```javascript
+const express = require("express");
+const devAuthKit = require("devauthkit");
+
+const app = express();
+
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET,
+  organizations: true, // Enables B2B multi-tenancy
+  sso: true,           // ✨ Enables Enterprise SSO (SAML 2.0 & OIDC)
+  scim: true,          // ✨ Enables SCIM 2.0 Directory Sync
+  refreshTokens: true
+});
+```
+
+### 2. Enabling on Cloudflare Workers & Hono
+
+```typescript
+import { Hono } from "hono";
+import { createAuthRouter } from "devauthkit/hono";
+import { CloudflareD1SsoStore } from "devauthkit/stores/cloudflare-d1-sso";
+import { CloudflareD1OrganizationStore } from "devauthkit/stores/cloudflare-d1-organizations";
+
+const app = new Hono();
+
+app.route("/", createAuthRouter({
+  jwtSecret: env.JWT_SECRET,
+  sessionSecret: env.SESSION_SECRET,
+  sso: true,
+  scim: true,
+  ssoStore: new CloudflareD1SsoStore(env.DB),
+  organizationStore: new CloudflareD1OrganizationStore(env.DB)
+}));
+
+export default app;
+```
+
+### 3. Built-In Enterprise SSO Endpoints
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/auth/sso/connections` | Create a SAML or OIDC enterprise connection for an organization |
+| `GET` | `/auth/sso/connections` | List SSO connections (filtered by `orgId`) |
+| `GET` | `/auth/sso/connections/:id` | Get details and endpoints for an SSO connection |
+| `PATCH` | `/auth/sso/connections/:id` | Update IdP certificates, SSO URLs, or attribute mappings |
+| `DELETE` | `/auth/sso/connections/:id` | Delete an SSO connection |
+| `POST` | `/auth/sso/connections/:id/verify-domain` | Verify domain DNS TXT record (`_devauth-verify.<domain>`) |
+| `POST` | `/auth/sso/resolve` | Discover connection by corporate email or domain and return redirect URL |
+| `GET` | `/auth/sso/saml/:id/metadata.xml` | Download standard Service Provider Metadata XML for IdP import |
+| `POST` | `/auth/sso/saml/:id/acs` | SAML 2.0 Assertion Consumer Service (receives IdP POST response) |
+
+### 4. Built-In SCIM 2.0 Endpoints (RFC 7643 & RFC 7644)
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/auth/scim/directories` | Create SCIM directory & generate initial bearer token (`scim_live_...`) |
+| `POST` | `/auth/scim/directories/:id/rotate-token` | Zero-downtime rotation of SCIM bearer token |
+| `GET` | `/scim/v2/ServiceProviderConfig` | RFC 7643 capabilities specification |
+| `GET` | `/scim/v2/Schemas` | RFC 7643 core User and Group schema definitions |
+| `GET` | `/scim/v2/Users` | Search and filter synced directory users (e.g. `userName eq "alice@acme.com"`) |
+| `POST` | `/scim/v2/Users` | JIT provision user and link to organization |
+| `PATCH` | `/scim/v2/Users/:id` | Update attributes or **instant deprovision** (`{ active: false }`) |
+| `DELETE` | `/scim/v2/Users/:id` | Hard delete / deprovision user |
+| `GET` | `/scim/v2/Groups` | List synchronized groups |
+| `POST` | `/scim/v2/Groups` | Provision new group and membership |
+| `PATCH` | `/scim/v2/Groups/:id` | Add or remove members from synced group |
+
+### 5. Frontend Client SDK Integration (`devauthkit/client`)
+
+```javascript
+import { DevAuthClient } from "devauthkit/client";
+
+const auth = new DevAuthClient({ apiUrl: "http://localhost:3000" });
+
+// 1. Resolve SSO by domain or email
+const { redirectUrl, type } = await auth.resolveSso("alice@acme.com");
+
+// 2. Or trigger instant redirect to corporate IdP
+await auth.loginWithSso("acme.com", "/dashboard");
+```
+
+---
+
 ## 💻 Client SDK (`devauthkit/client`)
 
 DevAuthKit includes a universal frontend client SDK that handles token storage, authentication state, and automatically injects Bearer tokens into your API requests.
@@ -826,7 +1163,30 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 
 ## 🔖 Version Changelog
 
-- **v1.6.0 (Latest)**:
+- **v1.9.0 (Latest)**:
+  - **Enterprise SSO (SAML 2.0 & OIDC)**: Zero-cost self-hosted alternative to WorkOS ($125/conn/mo) and Auth0 Enterprise ($800+/mo). Multi-tenant Service Provider engine with zero native C++ dependencies (runs on Node.js and Cloudflare Workers). XML Exclusive Canonicalization (C14N), RSA-SHA256 signature verification, dual rolling certificate rollover, universal domain routing (`/auth/sso/resolve`), dynamic SP Metadata XML, and strict defenses against XXE, XSW (XML Signature Wrapping), and replay attacks.
+  - **SCIM 2.0 Directory Sync (RFC 7643 & RFC 7644)**: Turnkey automated enterprise employee lifecycle management. Auto-provisions and synchronizes users and groups from Okta, Azure AD, OneLogin, and PingFederate.
+  - **Instant Deprovisioning Cascades**: When an employee is deactivated via SCIM `PATCH /scim/v2/Users/:id`, their organization membership is revoked and all active sessions/refresh tokens across clusters are immediately invalidated.
+  - **MemorySsoStore & CloudflareD1SsoStore**: Dual storage engines for SSO connections, IdP metadata, domain mapping, assertion anti-replay caches, and SCIM directory tokens.
+  - **Workers & Hono Edge Parity**: Full enterprise SSO domain routing and SCIM RFC-conforming endpoints on Cloudflare Workers edge runtime.
+  - **Expanded Automated Test Suite**: Added `test_sso_scim.js` bringing total passing test assertions across the entire suite to over 250+ assertions with 100% pass rate.
+- **v1.8.0**:
+  - **Cryptographically Signed Webhooks Engine (HMAC-SHA256)**: Outbound event bus and delivery engine conforming to the Svix / Stripe signature standard (`DevAuth-Signature: t=...,v1=...`).
+  - Added `verifyWebhookSignature` with anti-replay tolerance windows (default 300s) and timing-safe constant-time equality checks.
+  - Added `createWebhookHandler` Express middleware for turnkey webhook consumption and verification.
+  - Added `MemoryWebhookStore` and `CloudflareD1WebhookStore` for edge-native delivery history and endpoint persistence.
+  - Added `WebhookDispatcher` with non-blocking async microtask dispatch, exponential backoff retries, and delivery logging.
+  - Added REST endpoints: `POST /auth/webhooks`, `GET /auth/webhooks`, `GET /auth/webhooks/:id`, `PATCH /auth/webhooks/:id`, `DELETE /auth/webhooks/:id`, `GET /auth/webhooks/:id/deliveries`, and `POST /auth/webhooks/:id/test`.
+  - Automated test suite expanded to 8 test suites (including 54 new webhook assertions), 100% passing green.
+- **v1.7.0**:
+  - **Multi-Tenancy & Organizations (B2B Workspaces)**: Out-of-the-box multi-tenant workspace isolation, team invitations, dynamic workspace switching, and tenant-scoped JWTs across Express and Hono.
+  - Added role hierarchy (`owner`, `admin`, `member`, `billing`, `viewer`) with anti-privilege-escalation defenses (admins cannot elevate to owner, owners cannot abandon workspaces without transferring ownership).
+  - Added 256-bit cryptographic invitation token generation and SHA-256 database hashing for secure team invites.
+  - Added `requireOrg`, `requireOrgRole`, and `requireOrgPermission` middlewares with wildcard support (`*`, `members:*`, `projects:*`).
+  - Added `MemoryOrganizationStore` and `CloudflareD1OrganizationStore` (edge SQLite with atomic batch transactions).
+  - Added DPoP cryptographic key-binding (`cnf.jkt`) continuity across workspace switching.
+  - Added Client SDK workspace methods (`createOrg`, `listOrgs`, `switchOrg`, `getActiveOrg`, `inviteMember`, `joinOrg`) and React `useOrg()` hook with automated `x-organization-id` header injection.
+- **v1.6.0**:
   - **DPoP (RFC 9449) Proof-of-Possession**: Built-in zero-trust application-layer key binding preventing token theft, infostealer exploits, and replay attacks across Express and Hono.
   - Added `requireDPoP` middleware and DPoP-aware `requireAuth` (`cnf.jkt` validation).
   - Added `CloudflareD1DpopReplayStore` and `RedisDpopReplayStore` replay protection caches.
@@ -841,15 +1201,7 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
   - **Cloudflare D1 refresh-token store**: Added atomic D1 rotation, replay detection, session revocation, and TypeScript D1 typing.
   - **Extensible OAuth 2.0**: Unified Google/GitHub PKCE flows, added configurable custom providers, and added origin-checked account linking through user-adapter identity methods.
   - Added Miniflare integration tests for KV, D1, and Hono while preserving Express authentication behavior.
-- **Next (Roadmap)**:
-  - 🔑 **Passkeys & WebAuthn**: Native biometric passwordless authentication (TouchID, FaceID, Windows Hello, YubiKey).
-  - 🛡️ **Two-Factor Authentication (2FA / TOTP)**: Authenticator app integration (Google Authenticator, 1Password) with QR codes and backup recovery keys.
-  - 📱 **SMS OTP Authentication**: Pluggable SMS OTP delivery adapters (Twilio, AWS SNS, MessageBird).
-  - 🏢 **Multi-Tenancy & Organizations**: Built-in support for team accounts, organization workspaces, and member invitations.
-  - 🌐 **Discord & Apple OAuth 2.0**: 1-click social sign-in with PKCE for Discord and Sign in with Apple.
-  - 🪝 **Signed Webhooks**: Cryptographically signed webhook events (`user.created`, `user.login`, `session.revoked`, `security.lockout`).
-  - 💚 **Vue 3 & Svelte Composables**: Official `@devauthkit/vue` and `@devauthkit/svelte` companion packages.
-- **v1.4.0 (Latest)**:
+- **v1.4.0**:
   - **Rate Limiting (Advanced)**: Implemented granular per-route rate limiting (request OTP, verification, OAuth, magic links, refresh, logout, and session revocation) with Redis support for multi-instance deployments, and Express `trust proxy` awareness.
   -  **Revocable Sessions & Refresh-Token Rotation**: Implemented opt-in short-lived access tokens (15m), rotating httpOnly refresh cookies (30d), refresh-token reuse detection, and current/all-session revocation (`POST /auth/sessions/revoke`, `POST /auth/sessions/revoke-all`).
   -  **GitHub OAuth 2.0**: Native 1-click developer login with PKCE (`S256`), CSRF protection, and profile identity mapping.
@@ -885,6 +1237,14 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 - **v1.0.2**: CORS/session configurable via options.
 - **v1.0.1**: Reusable module support.
 - **v1.0.0**: Initial release.
+
+---
+
+## 🗺️ Roadmap (Upcoming)
+
+- 📱 **SMS OTP Authentication**: Pluggable SMS OTP delivery adapters (Twilio, AWS SNS, MessageBird).
+- 🌐 **Discord & Apple OAuth 2.0**: 1-click social sign-in with PKCE for Discord and Sign in with Apple.
+- 💚 **Vue 3 & Svelte Composables**: Official `@devauthkit/vue` and `@devauthkit/svelte` companion packages.
 
 ---
 

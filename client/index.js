@@ -130,6 +130,7 @@
       this.apiPrefix = options.apiPrefix || "/auth";
       this.tokenKey = options.tokenKey || "devauth_token";
       this.userKey = options.userKey || "devauth_user";
+      this.orgKey = options.orgKey || "devauth_org";
       this.tokenTypeKey = `${this.tokenKey}_type`;
       this.refreshEnabledKey = `${this.tokenKey}_refresh_enabled`;
       this.dpop = Boolean(options.dpop);
@@ -463,6 +464,222 @@
     }
 
     /**
+     * Get currently active organization from storage
+     * @returns {Object | null}
+     */
+    getActiveOrg() {
+      const stored = this.storage.getItem(this.orgKey);
+      if (!stored) return null;
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    /**
+     * List all organizations current user belongs to
+     * @returns {Promise<Array<Object>>}
+     */
+    async listOrgs() {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to list organizations");
+      return data.organizations || [];
+    }
+
+    /**
+     * Create a new organization
+     * @param {Object} params
+     * @param {string} params.name
+     * @param {string} [params.slug]
+     * @param {string} [params.logoUrl]
+     * @param {Object} [params.metadata]
+     * @returns {Promise<{ organization: Object, member: Object }>}
+     */
+    async createOrg(params) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create organization");
+      return data;
+    }
+
+    /**
+     * Get details and members of an organization
+     * @param {string} orgId
+     * @returns {Promise<{ organization: Object, member: Object, members: Array<Object> }>}
+     */
+    async getOrg(orgId) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to get organization");
+      return data;
+    }
+
+    /**
+     * Switch active organization workspace context and receive tenant-scoped JWT
+     * @param {string} orgId
+     * @returns {Promise<{ success: boolean, token: string, organization: Object, member: Object }>}
+     */
+    async switchOrg(orgId) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}/switch`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to switch organization");
+
+      if (data.token) {
+        this.storage.setItem(this.tokenKey, data.token);
+      }
+      if (data.organization) {
+        this.storage.setItem(this.orgKey, JSON.stringify(data.organization));
+      }
+      return data;
+    }
+
+    /**
+     * Invite a member to an organization
+     * @param {string} orgId
+     * @param {Object} params
+     * @param {string} params.email
+     * @param {string} [params.role="member"]
+     * @returns {Promise<{ success: boolean, invitation: Object, devModeInviteToken?: string }>}
+     */
+    async inviteMember(orgId, { email, role = "member" }) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}/invites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, role })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to invite member");
+      return data;
+    }
+
+    /**
+     * Accept invitation token and join organization
+     * @param {string} token
+     * @returns {Promise<{ success: boolean, token: string, organization: Object, member: Object }>}
+     */
+    async joinOrg(token) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to join organization");
+
+      if (data.token) {
+        this.storage.setItem(this.tokenKey, data.token);
+      }
+      if (data.organization) {
+        this.storage.setItem(this.orgKey, JSON.stringify(data.organization));
+      }
+      return data;
+    }
+
+    /**
+     * List pending invitations for an organization
+     * @param {string} orgId
+     * @returns {Promise<Array<Object>>}
+     */
+    async listInvitations(orgId) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}/invites`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to list invitations");
+      return data.invitations || [];
+    }
+
+    /**
+     * Revoke an invitation
+     * @param {string} orgId
+     * @param {string} inviteId
+     * @returns {Promise<{ success: boolean }>}
+     */
+    async revokeInvitation(orgId, inviteId) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}/invites/${inviteId}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to revoke invitation");
+      return data;
+    }
+
+    /**
+     * Update a member's role
+     * @param {string} orgId
+     * @param {string} userId
+     * @param {string} role
+     * @returns {Promise<{ success: boolean, member: Object }>}
+     */
+    async updateMemberRole(orgId, userId, role) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}/members/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update member role");
+      return data;
+    }
+
+    /**
+     * Remove a member from an organization
+     * @param {string} orgId
+     * @param {string} userId
+     * @returns {Promise<{ success: boolean }>}
+     */
+    async removeMember(orgId, userId) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}/members/${userId}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to remove member");
+      return data;
+    }
+
+    /**
+     * Resolve Enterprise SSO connection by user email or corporate domain
+     * @param {string} emailOrDomain - User corporate email or domain e.g. "alice@acme.com" or "acme.com"
+     * @param {string} [relayState] - Optional client redirect destination after IdP authentication
+     * @returns {Promise<{ success: boolean, type: string, redirectUrl: string, connectionId: string }>}
+     */
+    async resolveSso(emailOrDomain, relayState) {
+      const isEmail = emailOrDomain.includes("@");
+      const res = await this._rawFetch(`${this.apiUrl}${this.apiPrefix}/sso/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(isEmail ? { email: emailOrDomain } : { domain: emailOrDomain }),
+          relayState
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to resolve Enterprise SSO");
+      }
+      return data;
+    }
+
+    /**
+     * Redirect user to corporate IdP for Single Sign-On
+     * @param {string} emailOrDomain
+     * @param {string} [relayState]
+     */
+    async loginWithSso(emailOrDomain, relayState) {
+      const result = await this.resolveSso(emailOrDomain, relayState);
+      if (result.redirectUrl && typeof window !== "undefined" && window.location) {
+        window.location.href = result.redirectUrl;
+      }
+      return result;
+    }
+
+    /**
      * Make an authenticated HTTP request with Bearer token & session credentials
      * @param {string} endpoint - Path (e.g. "/api/todos") or full URL
      * @param {RequestInit} [options] - Standard fetch options
@@ -481,6 +698,11 @@
 
       if (token && !headers.has("Authorization")) {
         headers.set("Authorization", isDPoP ? `DPoP ${token}` : `Bearer ${token}`);
+      }
+
+      const activeOrg = this.getActiveOrg();
+      if (activeOrg?.id && !headers.has("x-organization-id") && !headers.has("x-org-id")) {
+        headers.set("x-organization-id", activeOrg.id);
       }
 
       if (isDPoP && !headers.has("DPoP")) {
@@ -568,6 +790,7 @@
       this.storage.removeItem(this.tokenTypeKey);
       this.storage.removeItem(this.userKey);
       this.storage.removeItem(this.refreshEnabledKey);
+      this.storage.removeItem(this.orgKey);
       this.dpopKey = null;
       this.dpopNonce = null;
       this._notifyAuthChange(null);

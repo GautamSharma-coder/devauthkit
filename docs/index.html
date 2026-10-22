@@ -70,9 +70,9 @@
     <section class="landing-hero">
       <div class="hero-pill-badge">
         <span class="live-indicator" style="display:inline-block; margin-right: 4px;"></span>
-        <span>DevAuthKit v1.6.0 Released</span>
+        <span>DevAuthKit v1.9.0 Released</span>
         <span>•</span>
-        <span>RFC 9449 DPoP &amp; Passkeys Ready</span>
+        <span>Enterprise SSO (SAML 2.0) &amp; SCIM 2.0 Ready</span>
       </div>
 
       <h1 class="landing-headline">
@@ -81,9 +81,8 @@
       </h1>
 
       <p class="landing-subtitle">
-        A plug-and-play, zero-config authentication toolkit for Node.js, Express, and Cloudflare Workers.
-        Hardware-bound RFC 9449 DPoP token security, WebAuthn passkeys, and multi-database adapters with zero cloud
-        fees.
+        A plug-and-play, zero-fee authentication engine for Node.js, Express, and Cloudflare Workers.
+        Enterprise SAML 2.0 SSO, SCIM 2.0 directory sync, hardware-bound RFC 9449 DPoP tokens, WebAuthn passkeys, and multi-tenant B2B workspaces with zero cloud fees.
       </p>
 
       <div class="landing-hero-actions">
@@ -291,7 +290,7 @@
         <!-- Bento Card 3: Multi-Runtime -->
         <div class="bento-card">
           <div class="bento-num">03 / MULTI-RUNTIME</div>
-          <h3 class="bento-title">Node & Cloudflare Edge</h3>
+          <h3 class="bento-title">Node &amp; Cloudflare Edge</h3>
           <p class="bento-desc">
             Run on traditional Express.js servers or deploy globally to Cloudflare Workers, Hono, and Bun with native
             Web Crypto APIs.
@@ -302,9 +301,25 @@
           </div>
         </div>
 
-        <!-- Bento Card 4: Databases -->
+        <!-- Bento Card 4: Refresh Tokens (Span 2) -->
+        <div class="bento-card bento-span-2">
+          <div class="bento-num">04 / SESSION SECURITY</div>
+          <h3 class="bento-title">Rotating Refresh Tokens &amp; Replay Defense</h3>
+          <p class="bento-desc">
+            Short-lived 15-minute access tokens paired with rotating 30-day httpOnly cookies. Includes automatic token
+            family tracking, immediate reuse detection, and multi-device session revocation endpoints
+            (<code>/auth/sessions/revoke-all</code>).
+          </p>
+          <div class="bento-preview">
+            <span style="color:#93c5fd;">refreshTokens</span>: { <span
+              style="color:#93c5fd;">accessTokenExpiresIn</span>: <span style="color:#4ade80;">"15m"</span>, <span
+              style="color:#93c5fd;">refreshTokenExpiresInDays</span>: <span style="color:#fbbf24;">30</span> }
+          </div>
+        </div>
+
+        <!-- Bento Card 5: Databases -->
         <div class="bento-card">
-          <div class="bento-num">04 / DATA SOVEREIGNTY</div>
+          <div class="bento-num">05 / DATA SOVEREIGNTY</div>
           <h3 class="bento-title">Database Freedom</h3>
           <p class="bento-desc">
             First-class adapters for Prisma, Drizzle ORM, Mongoose (MongoDB), and Cloudflare D1. Zero vendor database
@@ -315,19 +330,16 @@
           </div>
         </div>
 
-        <!-- Bento Card 5: Refresh Tokens (Span 2) -->
+        <!-- Bento Card 6: Enterprise SSO & SCIM (Span 2) -->
         <div class="bento-card bento-span-2">
-          <div class="bento-num">05 / SESSION SECURITY</div>
-          <h3 class="bento-title">Rotating Refresh Tokens & Replay Defense</h3>
+          <div class="bento-num">06 / ENTERPRISE FEDERATION</div>
+          <h3 class="bento-title">Enterprise SSO (SAML 2.0) &amp; SCIM 2.0 Sync</h3>
           <p class="bento-desc">
-            Short-lived 15-minute access tokens paired with rotating 30-day httpOnly cookies. Includes automatic token
-            family tracking, immediate reuse detection, and multi-device session revocation endpoints
-            (`/auth/sessions/revoke-all`).
+            Zero-fee, self-hosted alternative to WorkOS ($125/conn/mo) and Auth0 Enterprise ($800+/mo). Pure-JS C14N XML canonicalization, dynamic SP metadata XML, universal domain routing with DNS TXT verification, and RFC 7644 SCIM automated provisioning with instant session deprovisioning cascade.
           </p>
           <div class="bento-preview">
-            <span style="color:#93c5fd;">refreshTokens</span>: { <span
-              style="color:#93c5fd;">accessTokenExpiresIn</span>: <span style="color:#4ade80;">"15m"</span>, <span
-              style="color:#93c5fd;">refreshTokenExpiresInDays</span>: <span style="color:#fbbf24;">30</span> }
+            <span style="color:#ff79c6;">const</span> sso = <span style="color:#ff79c6;">await</span> devauth.<span style="color:#38bdf8;">resolveSso</span>({ <span style="color:#93c5fd;">email</span>: <span style="color:#4ade80;">"jane@acme.com"</span> });<br />
+            <span style="color:#ff79c6;">if</span> (sso.isEnterprise) devauth.<span style="color:#38bdf8;">loginWithSso</span>(sso.connection.id);
           </div>
         </div>
 

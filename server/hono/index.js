@@ -2,6 +2,15 @@ const { Hono } = require("hono");
 const { deleteCookie, getCookie, setCookie } = require("hono/cookie");
 const config = require("../config");
 const authController = require("../controllers/authController");
+const organizationController = require("../controllers/organizationController");
+const webhookController = require("../controllers/webhookController");
+const ssoController = require("../controllers/ssoController");
+const scimController = require("../controllers/scimController");
+const organizationService = require("../core/organizationService");
+const ssoService = require("../core/ssoService");
+const scimService = require("../core/scimService");
+const { MemorySsoStore } = require("../stores/memorySsoStore");
+const { CloudflareD1SsoStore } = require("../stores/cloudflareD1SsoStore");
 const defaultRefreshTokenStore = require("../stores/defaultRefreshTokenStore");
 const { verifyDPoPProof, DPoPError } = require("../core/dpopService");
 const MemoryRateLimitStore = require("../stores/memoryRateLimitStore");
@@ -36,6 +45,10 @@ function createRequest(c, body, session) {
     session,
     params: c.req.param(),
     user: c.get("user"),
+    org: c.get("org") || c.get("organization"),
+    organization: c.get("organization") || c.get("org"),
+    orgMember: c.get("orgMember"),
+    scimDirectory: c.get("scimDirectory"),
     get(name) {
       return c.req.header(name);
     }
@@ -52,6 +65,16 @@ function createResponse(c) {
     set(name, value) {
       c.header(name, value);
       return this;
+    },
+    setHeader(name, value) {
+      c.header(name, value);
+      return this;
+    },
+    send(body) {
+      if (typeof body === "string") {
+        return c.body(body, statusCode);
+      }
+      return c.json(body, statusCode);
     },
     cookie(name, value, options = {}) {
       setCookie(c, name, value, cookieOptions({ ...options, secure: true }));
@@ -308,6 +331,115 @@ function requireDPoP() {
   };
 }
 
+function requireOrg() {
+  return async (c, next) => {
+    if (!c.get("user")) {
+      const authMiddleware = requireAuth();
+      let authCalled = false;
+      const res = await authMiddleware(c, async () => {
+        authCalled = true;
+      });
+      if (res) return res;
+      if (!authCalled || !c.get("user")) {
+        return c.json({ error: "Unauthorized: Authentication required" }, 401);
+      }
+    }
+
+    const orgStore = config.get("organizationStore") || config.get("orgStore");
+    if (!orgStore) {
+      return c.json({ error: "Organizations feature is not configured on this server" }, 500);
+    }
+
+    const user = c.get("user");
+    const orgId = user?.org_id ||
+      c.req.header("x-organization-id") ||
+      c.req.header("x-org-id") ||
+      c.req.param("orgId") ||
+      c.req.param("id");
+
+    if (!orgId || typeof orgId !== "string") {
+      return c.json({ error: "Active organization context is required (missing org_id)" }, 400);
+    }
+
+    const userId = user.id !== undefined && user.id !== null ? String(user.id) : user.email;
+    const member = await orgStore.getMember(orgId, userId);
+    if (!member) {
+      return c.json({ error: "Forbidden: You are not an active member of this organization" }, 403);
+    }
+
+    const organization = await orgStore.getOrgById(orgId);
+    if (!organization) {
+      return c.json({ error: "Organization not found" }, 404);
+    }
+
+    c.set("org", organization);
+    c.set("organization", organization);
+    c.set("orgMember", member);
+    await next();
+  };
+}
+
+function requireOrgRole(allowedRoles, options = {}) {
+  const roles = Array.isArray(allowedRoles)
+    ? allowedRoles
+    : typeof allowedRoles === "string"
+      ? [allowedRoles]
+      : [];
+
+  if (roles.length === 0) {
+    throw new TypeError("requireOrgRole requires at least one allowed role (string or array of strings)");
+  }
+
+  const errorMessage = options.errorMessage || "Forbidden: Insufficient organization permissions";
+
+  return async (c, next) => {
+    if (!c.get("organization") || !c.get("orgMember")) {
+      const orgMw = requireOrg();
+      let orgNextCalled = false;
+      const res = await orgMw(c, async () => {
+        orgNextCalled = true;
+      });
+      if (res) return res;
+      if (!orgNextCalled) return;
+    }
+
+    const currentRole = c.get("orgMember")?.role;
+    const hasAccess = currentRole === "owner" || roles.includes(currentRole);
+    if (!hasAccess) {
+      return c.json({ error: errorMessage }, 403);
+    }
+    await next();
+  };
+}
+
+function requireOrgPermission(requiredPermission, options = {}) {
+  if (!requiredPermission || typeof requiredPermission !== "string") {
+    throw new TypeError("requireOrgPermission requires a permission string (e.g. 'members:invite')");
+  }
+
+  const errorMessage = options.errorMessage || `Forbidden: Missing required permission (${requiredPermission})`;
+
+  return async (c, next) => {
+    if (!c.get("organization") || !c.get("orgMember")) {
+      const orgMw = requireOrg();
+      let orgNextCalled = false;
+      const res = await orgMw(c, async () => {
+        orgNextCalled = true;
+      });
+      if (res) return res;
+      if (!orgNextCalled) return;
+    }
+
+    const currentRole = c.get("orgMember")?.role;
+    const customRoleMap = config.get("orgRoles");
+    const hasAccess = organizationService.hasOrgPermission(currentRole, requiredPermission, customRoleMap);
+    if (!hasAccess) {
+      return c.json({ error: errorMessage }, 403);
+    }
+    await next();
+  };
+}
+
 function createAuthRouter(options = {}) {
   if (!options.jwtSecret || options.jwtSecret === "devAuthJwtSecretKey_change_in_production") {
     throw new TypeError("createAuthRouter requires an explicit jwtSecret");
@@ -391,16 +523,25 @@ function createAuthRouter(options = {}) {
   function dispatch(controller, rateRule) {
     return async (c) => {
       let body = {};
+      const contentType = c.req.header("content-type") || "";
       if (
         c.req.method !== "GET" &&
         c.req.method !== "HEAD" &&
-        c.req.header("content-length") !== "0" &&
-        c.req.header("content-type")?.includes("application/json")
+        c.req.header("content-length") !== "0"
       ) {
-        try {
-          body = await c.req.json();
-        } catch {
-          return c.json({ error: "Request body must be valid JSON" }, 400);
+        if (contentType.includes("application/json") || contentType.includes("application/scim+json")) {
+          try {
+            body = await c.req.json();
+          } catch {
+            return c.json({ error: "Request body must be valid JSON" }, 400);
+          }
+        } else if (contentType.includes("application/x-www-form-urlencoded")) {
+          try {
+            const formData = await c.req.parseBody();
+            body = { ...formData };
+          } catch {
+            body = {};
+          }
         }
       }
       if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -419,6 +560,22 @@ function createAuthRouter(options = {}) {
         if (limited) return limited;
       }
       return controller(req, res);
+    };
+  }
+
+  function requireScimBearer() {
+    return async (c, next) => {
+      const res = createResponse(c);
+      const req = createRequest(c, {}, {});
+      let authenticated = false;
+      const maybeResponse = await scimController.authenticateScimBearer(req, res, () => {
+        authenticated = true;
+      });
+      if (authenticated) {
+        c.set("scimDirectory", req.scimDirectory);
+        return next();
+      }
+      return maybeResponse;
     };
   }
 
@@ -448,7 +605,87 @@ function createAuthRouter(options = {}) {
   router.post(`${prefix}/sessions/revoke`, requireAuth(), dispatch(authController.revokeSession, "revokeSession"));
   router.post(`${prefix}/sessions/revoke-all`, requireAuth(), dispatch(authController.revokeAllSessions, "revokeAllSessions"));
 
+  if (activeConfig.organizations) {
+    router.post(`${prefix}/orgs`, requireAuth(), dispatch(organizationController.createOrg, "orgCreate"));
+    router.get(`${prefix}/orgs`, requireAuth(), dispatch(organizationController.listUserOrgs));
+    router.post(`${prefix}/orgs/join`, requireAuth(), dispatch(organizationController.joinOrg, "orgJoin"));
+    router.get(`${prefix}/orgs/:id`, requireAuth(), dispatch(organizationController.getOrg));
+    router.patch(`${prefix}/orgs/:id`, requireAuth(), dispatch(organizationController.updateOrg));
+    router.delete(`${prefix}/orgs/:id`, requireAuth(), dispatch(organizationController.deleteOrg));
+    router.post(`${prefix}/orgs/:id/switch`, requireAuth(), dispatch(organizationController.switchOrg, "orgSwitch"));
+    router.post(`${prefix}/orgs/:id/invites`, requireAuth(), dispatch(organizationController.inviteMember, "orgInvite"));
+    router.post(`${prefix}/orgs/:id/invitations`, requireAuth(), dispatch(organizationController.inviteMember, "orgInvite"));
+    router.get(`${prefix}/orgs/:id/invites`, requireAuth(), dispatch(organizationController.listInvitations));
+    router.get(`${prefix}/orgs/:id/invitations`, requireAuth(), dispatch(organizationController.listInvitations));
+    router.delete(`${prefix}/orgs/:id/invites/:inviteId`, requireAuth(), dispatch(organizationController.revokeInvitation));
+    router.delete(`${prefix}/orgs/:id/invitations/:inviteId`, requireAuth(), dispatch(organizationController.revokeInvitation));
+    router.patch(`${prefix}/orgs/:id/members/:userId`, requireAuth(), dispatch(organizationController.updateMemberRole));
+    router.delete(`${prefix}/orgs/:id/members/:userId`, requireAuth(), dispatch(organizationController.removeMember));
+  }
+
+  if (activeConfig.webhooks) {
+    router.post(`${prefix}/webhooks`, requireAuth(), dispatch(webhookController.createEndpoint, "webhookCreate"));
+    router.get(`${prefix}/webhooks`, requireAuth(), dispatch(webhookController.listEndpoints));
+    router.get(`${prefix}/webhooks/:id`, requireAuth(), dispatch(webhookController.getEndpoint));
+    router.patch(`${prefix}/webhooks/:id`, requireAuth(), dispatch(webhookController.updateEndpoint));
+    router.delete(`${prefix}/webhooks/:id`, requireAuth(), dispatch(webhookController.deleteEndpoint));
+    router.get(`${prefix}/webhooks/:id/deliveries`, requireAuth(), dispatch(webhookController.listDeliveries));
+    router.post(`${prefix}/webhooks/:id/test`, requireAuth(), dispatch(webhookController.testEndpoint, "webhookTest"));
+  }
+
+  if (activeConfig.sso || activeConfig.ssoStore) {
+    router.post(`${prefix}/sso/connections`, requireAuth(), dispatch(ssoController.createConnection));
+    router.get(`${prefix}/sso/connections`, requireAuth(), dispatch(ssoController.listConnections));
+    router.get(`${prefix}/sso/connections/:id`, requireAuth(), dispatch(ssoController.getConnection));
+    router.patch(`${prefix}/sso/connections/:id`, requireAuth(), dispatch(ssoController.updateConnection));
+    router.delete(`${prefix}/sso/connections/:id`, requireAuth(), dispatch(ssoController.deleteConnection));
+    router.post(`${prefix}/sso/connections/:id/verify-domain`, requireAuth(), dispatch(ssoController.verifyDomain));
+
+    router.post(`${prefix}/sso/resolve`, dispatch(ssoController.resolveSso));
+    router.get(`${prefix}/sso/resolve`, dispatch(ssoController.resolveSso));
+    router.get(`${prefix}/sso/saml/:connectionId/metadata.xml`, dispatch(ssoController.getSpMetadata));
+    router.get(`${prefix}/sso/saml/metadata.xml`, dispatch(ssoController.getSpMetadata));
+    router.post(`${prefix}/sso/saml/:connectionId/acs`, dispatch(ssoController.handleSamlAcs));
+    router.post(`${prefix}/sso/saml/acs`, dispatch(ssoController.handleSamlAcs));
+  }
+
+  if (activeConfig.scim || activeConfig.ssoStore) {
+    router.post(`${prefix}/scim/directories`, requireAuth(), dispatch(scimController.createDirectory));
+    router.get(`${prefix}/scim/directories`, requireAuth(), dispatch(scimController.listDirectories));
+    router.get(`${prefix}/scim/directories/:id`, requireAuth(), dispatch(scimController.getDirectory));
+    router.post(`${prefix}/scim/directories/:id/rotate-token`, requireAuth(), dispatch(scimController.rotateToken));
+    router.delete(`${prefix}/scim/directories/:id`, requireAuth(), dispatch(scimController.deleteDirectory));
+
+    // SCIM 2.0 Protocol Endpoints (RFC 7643 & 7644)
+    for (const scimBase of [`${prefix}/scim/v2`, "/scim/v2"]) {
+      router.get(`${scimBase}/ServiceProviderConfig`, dispatch(scimController.getServiceProviderConfig));
+      router.get(`${scimBase}/Schemas`, dispatch(scimController.getSchemas));
+      router.get(`${scimBase}/Users`, requireScimBearer(), dispatch(scimController.listUsers));
+      router.get(`${scimBase}/Users/:id`, requireScimBearer(), dispatch(scimController.getUser));
+      router.post(`${scimBase}/Users`, requireScimBearer(), dispatch(scimController.createUser));
+      router.patch(`${scimBase}/Users/:id`, requireScimBearer(), dispatch(scimController.patchUser));
+      router.put(`${scimBase}/Users/:id`, requireScimBearer(), dispatch(scimController.patchUser));
+      router.delete(`${scimBase}/Users/:id`, requireScimBearer(), dispatch(scimController.deleteUser));
+      router.get(`${scimBase}/Groups`, requireScimBearer(), dispatch(scimController.listGroups));
+      router.get(`${scimBase}/Groups/:id`, requireScimBearer(), dispatch(scimController.getGroup));
+      router.post(`${scimBase}/Groups`, requireScimBearer(), dispatch(scimController.createGroup));
+      router.patch(`${scimBase}/Groups/:id`, requireScimBearer(), dispatch(scimController.patchGroup));
+      router.put(`${scimBase}/Groups/:id`, requireScimBearer(), dispatch(scimController.patchGroup));
+    }
+  }
+
   return router;
 }
 
-module.exports = { createAuthRouter, requireAuth, requireDPoP };
+module.exports = {
+  createAuthRouter,
+  requireAuth,
+  requireDPoP,
+  requireOrg,
+  requireOrgRole,
+  requireOrgPermission,
+  MemorySsoStore,
+  CloudflareD1SsoStore,
+  sso: ssoService,
+  scim: scimService
+};

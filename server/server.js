@@ -243,6 +243,18 @@ function devAuthKit(app, options = {}) {
     }
   }
 
+  if (activeConfig.webhookStore && !["createEndpoint", "getEndpoint", "listEndpoints", "updateEndpoint", "deleteEndpoint", "recordDelivery", "listDeliveries"].every(
+    (method) => typeof activeConfig.webhookStore[method] === "function"
+  )) {
+    throw new TypeError("webhookStore must implement createEndpoint, getEndpoint, listEndpoints, updateEndpoint, deleteEndpoint, recordDelivery, and listDeliveries");
+  }
+
+  if (activeConfig.ssoStore && !["createConnection", "getConnection", "listConnections", "getConnectionByDomain", "updateConnection", "deleteConnection"].every(
+    (method) => typeof activeConfig.ssoStore[method] === "function"
+  )) {
+    throw new TypeError("ssoStore must implement createConnection, getConnection, listConnections, getConnectionByDomain, updateConnection, and deleteConnection");
+  }
+
   // Setup CORS
   app.use(cors({
     origin: activeConfig.corsOrigin,
@@ -250,7 +262,7 @@ function devAuthKit(app, options = {}) {
   }));
 
   // Setup body parsers
-  app.use(express.json());
+  app.use(express.json({ type: ["application/json", "application/scim+json", "*/*+json"] }));
   app.use(express.urlencoded({ extended: true }));
 
   // Setup session
@@ -269,6 +281,24 @@ function devAuthKit(app, options = {}) {
   // Mount Auth Routes (default: /auth)
   const prefix = activeConfig.apiPrefix || "/auth";
   app.use(prefix, authRoutes);
+
+  // If SCIM is enabled, also mount /scim/v2 directly at root level
+  const scimController = require("./controllers/scimController");
+  if (activeConfig.scim || activeConfig.ssoStore) {
+    app.get("/scim/v2/ServiceProviderConfig", scimController.getServiceProviderConfig);
+    app.get("/scim/v2/Schemas", scimController.getSchemas);
+    app.get("/scim/v2/Users", scimController.authenticateScimBearer, scimController.listUsers);
+    app.get("/scim/v2/Users/:id", scimController.authenticateScimBearer, scimController.getUser);
+    app.post("/scim/v2/Users", scimController.authenticateScimBearer, scimController.createUser);
+    app.patch("/scim/v2/Users/:id", scimController.authenticateScimBearer, scimController.patchUser);
+    app.put("/scim/v2/Users/:id", scimController.authenticateScimBearer, scimController.patchUser);
+    app.delete("/scim/v2/Users/:id", scimController.authenticateScimBearer, scimController.deleteUser);
+    app.get("/scim/v2/Groups", scimController.authenticateScimBearer, scimController.listGroups);
+    app.get("/scim/v2/Groups/:id", scimController.authenticateScimBearer, scimController.getGroup);
+    app.post("/scim/v2/Groups", scimController.authenticateScimBearer, scimController.createGroup);
+    app.patch("/scim/v2/Groups/:id", scimController.authenticateScimBearer, scimController.patchGroup);
+    app.put("/scim/v2/Groups/:id", scimController.authenticateScimBearer, scimController.patchGroup);
+  }
 
   // Optional root-level protected test route
   app.get("/profile", requireAuth, (req, res) => {
@@ -300,6 +330,39 @@ devAuthKit.requireAuth = requireAuth;
 devAuthKit.requireMfa = requireMfa;
 devAuthKit.requireDPoP = requireDPoP;
 devAuthKit.requireRole = requireRole;
+const { requireOrg, requireOrgRole, requireOrgPermission } = require("./middleware/requireOrg");
+const { MemoryOrganizationStore } = require("./stores/memoryOrganizationStore");
+const { CloudflareD1OrganizationStore } = require("./stores/cloudflareD1OrganizationStore");
+const organizationService = require("./core/organizationService");
+
+devAuthKit.requireOrg = requireOrg;
+devAuthKit.requireOrgRole = requireOrgRole;
+devAuthKit.requireOrgPermission = requireOrgPermission;
+devAuthKit.MemoryOrganizationStore = MemoryOrganizationStore;
+devAuthKit.CloudflareD1OrganizationStore = CloudflareD1OrganizationStore;
+devAuthKit.organizations = organizationService;
+
+const webhookService = require("./core/webhookService");
+const { WebhookDispatcher, emitWebhookEvent } = require("./core/webhookDispatcher");
+const { MemoryWebhookStore } = require("./stores/memoryWebhookStore");
+const { CloudflareD1WebhookStore } = require("./stores/cloudflareD1WebhookStore");
+
+devAuthKit.webhooks = webhookService;
+devAuthKit.WebhookDispatcher = WebhookDispatcher;
+devAuthKit.emitWebhookEvent = emitWebhookEvent;
+devAuthKit.MemoryWebhookStore = MemoryWebhookStore;
+devAuthKit.CloudflareD1WebhookStore = CloudflareD1WebhookStore;
+
+const ssoService = require("./core/ssoService");
+const scimService = require("./core/scimService");
+const { MemorySsoStore } = require("./stores/memorySsoStore");
+const { CloudflareD1SsoStore } = require("./stores/cloudflareD1SsoStore");
+
+devAuthKit.sso = ssoService;
+devAuthKit.scim = scimService;
+devAuthKit.MemorySsoStore = MemorySsoStore;
+devAuthKit.CloudflareD1SsoStore = CloudflareD1SsoStore;
+
 devAuthKit.devAuthKit = devAuthKit;
 devAuthKit.config = config;
 devAuthKit.checkConfig = (options) => {

@@ -1,6 +1,6 @@
 {
   "name": "devauthkit",
-  "version": "1.6.0",
+  "version": "1.9.0",
   "description": "A plug-and-play authentication service for developers",
   "main": "index.js",
   "types": "./index.d.ts",
@@ -61,6 +61,46 @@
       "types": "./server/stores/redisRefreshTokenStore.d.ts",
       "default": "./server/stores/redisRefreshTokenStore.js"
     },
+    "./stores/cloudflare-d1-organizations": {
+      "types": "./server/stores/cloudflareD1OrganizationStore.d.ts",
+      "default": "./server/stores/cloudflareD1OrganizationStore.js"
+    },
+    "./organizations": {
+      "types": "./server/core/organizationService.d.ts",
+      "default": "./server/core/organizationService.js"
+    },
+    "./stores/memory-organizations": {
+      "types": "./server/stores/memoryOrganizationStore.d.ts",
+      "default": "./server/stores/memoryOrganizationStore.js"
+    },
+    "./webhooks": {
+      "types": "./server/core/webhookService.d.ts",
+      "default": "./server/core/webhookService.js"
+    },
+    "./stores/cloudflare-d1-webhooks": {
+      "types": "./server/stores/cloudflareD1WebhookStore.d.ts",
+      "default": "./server/stores/cloudflareD1WebhookStore.js"
+    },
+    "./stores/memory-webhooks": {
+      "types": "./server/stores/memoryWebhookStore.d.ts",
+      "default": "./server/stores/memoryWebhookStore.js"
+    },
+    "./sso": {
+      "types": "./server/core/ssoService.d.ts",
+      "default": "./server/core/ssoService.js"
+    },
+    "./scim": {
+      "types": "./server/core/scimService.d.ts",
+      "default": "./server/core/scimService.js"
+    },
+    "./stores/memory-sso": {
+      "types": "./server/stores/memorySsoStore.d.ts",
+      "default": "./server/stores/memorySsoStore.js"
+    },
+    "./stores/cloudflare-d1-sso": {
+      "types": "./server/stores/cloudflareD1SsoStore.d.ts",
+      "default": "./server/stores/cloudflareD1SsoStore.js"
+    },
     "./react": {
       "types": "./client/react/index.d.ts",
       "default": "./client/react/index.js"
@@ -89,7 +129,7 @@
   "scripts": {
     "start": "node example.js",
     "dev": "nodemon example.js",
-    "test": "node test_auth.js && node test_redis_refresh_token_store.js && node test_mfa.js && node test_passkeys.js && node test_cloudflare.js && node test_dpop.js",
+    "test": "node test_auth.js && node test_redis_refresh_token_store.js && node test_mfa.js && node test_passkeys.js && node test_cloudflare.js && node test_dpop.js && node test_organizations.js && node test_webhooks.js && node test_sso_scim.js",
     "prepublishOnly": "npm test"
   },
   "repository": {
@@ -113,6 +153,10 @@
     "passkeys",
     "webauthn",
     "passwordless",
+    "sso",
+    "saml",
+    "scim",
+    "enterprise",
     "sdk"
   ],
   "author": "Gautam Sharma",

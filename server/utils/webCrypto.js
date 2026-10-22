@@ -158,10 +158,28 @@ async function verifyJwt(token, secret) {
   return payload;
 }
 
+async function hmacSha256Hex(data, secret) {
+  if (typeof secret !== "string" || !secret) throw new TypeError("Secret must be a non-empty string");
+  const key = await cryptoApi().subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await cryptoApi().subtle.sign(
+    "HMAC",
+    key,
+    typeof data === "string" ? encoder.encode(data) : data
+  );
+  return Array.from(new Uint8Array(signature), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 module.exports = {
   constantTimeEqual,
   cryptoApi,
   fromBase64Url,
+  hmacSha256Hex,
   randomBytes,
   randomString,
   randomUUID,

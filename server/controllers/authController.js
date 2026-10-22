@@ -12,6 +12,7 @@ const generateOTP = require("../utils/generateOTP");
 const config = require("../config");
 const defaultRefreshTokenStore = require("../stores/defaultRefreshTokenStore");
 const { verifyDPoPProof, DPoPError } = require("../core/dpopService");
+const { emitWebhookEvent } = require("../core/webhookDispatcher");
 
 // Magic link in-memory store
 const magicLinkStore = new Map();
@@ -124,6 +125,10 @@ function handleDPoPError(res, error) {
 }
 
 function issueTokens(userPayload, res, dpopJkt = null) {
+  emitWebhookEvent("user.authenticated", {
+    userId: String(userPayload.id ?? userPayload.email),
+    user: userPayload
+  });
   return authService.issueTokens(
     userPayload,
     {
@@ -373,6 +378,11 @@ exports.revokeSession = async (req, res) => {
     await getRefreshTokenStore().revokeFamily(familyId);
     res.clearCookie(config.get("cookieName") || "devauth_token");
     clearRefreshCookie(res);
+    emitWebhookEvent("session.revoked", {
+      userId: req.user?.id ?? req.user?.email,
+      sessionId: familyId,
+      actor: req.user
+    });
     return res.json({ message: "Current session revoked" });
   } catch (error) {
     console.error("[DevAuthKit] Failed to revoke current session:", error);
@@ -387,6 +397,10 @@ exports.revokeAllSessions = async (req, res) => {
     await getRefreshTokenStore().revokeAll(String(userId));
     res.clearCookie(config.get("cookieName") || "devauth_token");
     clearRefreshCookie(res);
+    emitWebhookEvent("session.revoked_all", {
+      userId: String(userId),
+      actor: req.user
+    });
     return res.json({ message: "All sessions revoked" });
   } catch (error) {
     console.error("[DevAuthKit] Failed to revoke all user sessions:", error);
@@ -824,6 +838,11 @@ exports.logout = async (req, res) => {
       return res.status(500).json({ error: "Failed to log out" });
     }
   }
+
+  emitWebhookEvent("user.logout", {
+    userId: req.user?.id ?? req.user?.email,
+    actor: req.user
+  });
 
   if (req.session) {
     req.session.destroy((err) => {
