@@ -33,7 +33,7 @@
       <a href="index.html" class="brand-link">
         <img src="logo.png" alt="DevAuthKit Logo" class="brand-logo" />
         <span>DevAuthKit</span>
-        <span class="version-badge">v1.6.0</span>
+        <span class="version-badge">v1.9.0</span>
       </a>
     </div>
 
@@ -82,7 +82,8 @@
 
       <p class="landing-subtitle">
         A plug-and-play, zero-fee authentication engine for Node.js, Express, and Cloudflare Workers.
-        Enterprise SAML 2.0 SSO, SCIM 2.0 directory sync, hardware-bound RFC 9449 DPoP tokens, WebAuthn passkeys, and multi-tenant B2B workspaces with zero cloud fees.
+        Enterprise SAML 2.0 SSO, SCIM 2.0 directory sync, hardware-bound RFC 9449 DPoP tokens, WebAuthn passkeys, and
+        multi-tenant B2B workspaces with zero cloud fees.
       </p>
 
       <div class="landing-hero-actions">
@@ -335,11 +336,16 @@
           <div class="bento-num">06 / ENTERPRISE FEDERATION</div>
           <h3 class="bento-title">Enterprise SSO (SAML 2.0) &amp; SCIM 2.0 Sync</h3>
           <p class="bento-desc">
-            Zero-fee, self-hosted alternative to WorkOS ($125/conn/mo) and Auth0 Enterprise ($800+/mo). Pure-JS C14N XML canonicalization, dynamic SP metadata XML, universal domain routing with DNS TXT verification, and RFC 7644 SCIM automated provisioning with instant session deprovisioning cascade.
+            Zero-fee, self-hosted alternative to WorkOS ($125/conn/mo) and Auth0 Enterprise ($800+/mo). Pure-JS C14N XML
+            canonicalization, dynamic SP metadata XML, universal domain routing with DNS TXT verification, and RFC 7644
+            SCIM automated provisioning with instant session deprovisioning cascade.
           </p>
           <div class="bento-preview">
-            <span style="color:#ff79c6;">const</span> sso = <span style="color:#ff79c6;">await</span> devauth.<span style="color:#38bdf8;">resolveSso</span>({ <span style="color:#93c5fd;">email</span>: <span style="color:#4ade80;">"jane@acme.com"</span> });<br />
-            <span style="color:#ff79c6;">if</span> (sso.isEnterprise) devauth.<span style="color:#38bdf8;">loginWithSso</span>(sso.connection.id);
+            <span style="color:#ff79c6;">const</span> sso = <span style="color:#ff79c6;">await</span> devauth.<span
+              style="color:#38bdf8;">resolveSso</span>({ <span style="color:#93c5fd;">email</span>: <span
+              style="color:#4ade80;">"jane@acme.com"</span> });<br />
+            <span style="color:#ff79c6;">if</span> (sso.isEnterprise) devauth.<span
+              style="color:#38bdf8;">loginWithSso</span>(sso.connection.id);
           </div>
         </div>
 

@@ -7,6 +7,8 @@
 <a href="https://www.producthunt.com/products/devauthkit?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-devauthkit" target="_blank" rel="noopener noreferrer"><img alt="devauthkit - Plug-and-play passwordless auth &amp; JWT for Express.js | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1286171&amp;theme=light&amp;t=1792469701608"></a>
 
 [![npm version](https://img.shields.io/npm/v/devauthkit.svg)](https://www.npmjs.com/package/devauthkit)
+[![npm downloads](https://img.shields.io/npm/dw/devauthkit.svg?color=blue&logo=npm)](https://www.npmjs.com/package/devauthkit)
+[![Open in StackBlitz](https://img.shields.io/badge/StackBlitz-Live_Playground-1389FD?logo=stackblitz&logoColor=white)](https://stackblitz.com/github/GautamSharma-coder/devauthkit)
 [![Documentation](https://img.shields.io/badge/Documentation-Live%20Docs-0ea5e9.svg)](https://gautamsharma-coder.github.io/devauthkit/docs.html)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![CI](https://github.com/GautamSharma-coder/devauthkit/actions/workflows/ci.yml/badge.svg)](https://github.com/GautamSharma-coder/devauthkit/actions/workflows/ci.yml)
@@ -15,7 +17,14 @@
 **DevAuthKit** is a lightweight, zero-config self-hosted authentication toolkit for Node.js & Express with a universal companion Client SDK. Built for developers who want plug-and-play passwordless email OTP authentication, JWT Bearer tokens, and secure `httpOnly` sessions without paying exorbitant SaaS pricing (Clerk/Auth0) or wrestling with complex configuration (NextAuth/Passport).
 
 📚 **[Read the Full Documentation & API Reference →](https://gautamsharma-coder.github.io/devauthkit/docs.html)**  
-🌐 **[Live Demo & Interactive Sandbox →](https://gautamsharma-coder.github.io/devauthkit/)**
+🌐 **[Live Demo & Interactive Sandbox →](https://gautamsharma-coder.github.io/devauthkit/)**  
+⚡ **[Run in 1-Click on StackBlitz →](https://stackblitz.com/github/GautamSharma-coder/devauthkit)**
+
+<p align="left">
+  <a href="https://stackblitz.com/github/GautamSharma-coder/devauthkit" target="_blank" rel="noopener noreferrer">
+    <img src="https://developer.stackblitz.com/img/open_in_stackblitz.svg" alt="Open in StackBlitz" height="34" />
+  </a>
+</p>
 
 ---
 
