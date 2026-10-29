@@ -797,7 +797,206 @@
       return { success: true };
     }
 
+    // ==========================================
+    // DevAuthKit v2 Next-Gen Client Methods
+    // ==========================================
+
+    /**
+     * Start an impersonation session (Admin only)
+     * @param {string} userId - Target user ID to impersonate
+     * @param {string} [reason] - Audit reason for impersonation
+     * @returns {Promise<{ token: string, targetUser: Object, actor: Object }>}
+     */
+    async impersonate(userId, reason) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/impersonate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, reason })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to impersonate");
+
+      // Save original admin token to restore on exit
+      const currentToken = this.getToken();
+      if (currentToken) {
+        this.storage.setItem(`${this.storagePrefix}orig_admin_token`, currentToken);
+      }
+
+      this.storage.setItem(this.tokenKey, data.token);
+      this.storage.setItem(this.userKey, JSON.stringify(data.targetUser));
+      this._notifyAuthChange(data.targetUser);
+      return data;
+    }
+
+    /**
+     * End active impersonation session and restore admin identity
+     * @returns {Promise<{ success: boolean }>}
+     */
+    async endImpersonation() {
+      try {
+        await this.fetch(`${this.apiUrl}${this.apiPrefix}/end-impersonation`, {
+          method: "POST"
+        });
+      } catch (e) {
+        // Continue restoring admin token even if endpoint fails
+      }
+
+      const origToken = this.storage.getItem(`${this.storagePrefix}orig_admin_token`);
+      if (origToken) {
+        this.storage.setItem(this.tokenKey, origToken);
+        this.storage.removeItem(`${this.storagePrefix}orig_admin_token`);
+        // Refresh me to restore admin user state
+        try {
+          const meRes = await this.fetch(`${this.apiUrl}${this.apiPrefix}/me`);
+          if (meRes.ok) {
+            const meData = await meRes.json();
+            this.storage.setItem(this.userKey, JSON.stringify(meData.user));
+            this._notifyAuthChange(meData.user);
+          }
+        } catch {}
+      }
+      return { success: true };
+    }
+
+    isImpersonating() {
+      const user = this.getUser();
+      return Boolean(user?.act || this.storage.getItem(`${this.storagePrefix}orig_admin_token`));
+    }
+
+    getActorUser() {
+      const user = this.getUser();
+      return user?.act || null;
+    }
+
+    /**
+     * List all active sessions across devices
+     * @returns {Promise<Array<Object>>}
+     */
+    async listSessions() {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/sessions`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to list sessions");
+      return data.sessions || [];
+    }
+
+    /**
+     * Revoke a specific session by ID
+     * @param {string} sessionId
+     * @returns {Promise<{ success: boolean }>}
+     */
+    async revokeSession(sessionId) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/sessions/${sessionId}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to revoke session");
+      return data;
+    }
+
+    /**
+     * Revoke all other active sessions except the current one
+     * @returns {Promise<{ success: boolean, revokedCount: number }>}
+     */
+    async revokeOtherSessions() {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/sessions/revoke-others`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to revoke other sessions");
+      return data;
+    }
+
+    /**
+     * List API keys for the current user or organization
+     * @returns {Promise<Array<Object>>}
+     */
+    async listApiKeys() {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/api-keys`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to list API keys");
+      return data.keys || [];
+    }
+
+    /**
+     * Create a new scoped API key
+     * @param {Object} options
+     * @param {string} options.name
+     * @param {string[]|string} [options.scopes]
+     * @param {number} [options.expiresInDays]
+     * @param {string} [options.env="live"]
+     * @returns {Promise<{ key: Object, rawKey: string }>}
+     */
+    async createApiKey(options) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/api-keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(options || {})
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to create API key");
+      return data;
+    }
+
+    /**
+     * Revoke an API key
+     * @param {string} keyId
+     * @returns {Promise<{ success: boolean }>}
+     */
+    async revokeApiKey(keyId) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/api-keys/${keyId}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to revoke API key");
+      return data;
+    }
+
+    /**
+     * Roll (rotate) an API key
+     * @param {string} keyId
+     * @returns {Promise<{ key: Object, rawKey: string }>}
+     */
+    async rollApiKey(keyId) {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/api-keys/${keyId}/roll`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to roll API key");
+      return data;
+    }
+
+    /**
+     * Query audit logs (Admin/Org Owner only)
+     * @param {Object} [filters]
+     * @returns {Promise<{ entries: Array, total: number }>}
+     */
+    async listAuditLogs(filters = {}) {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(filters)) {
+        if (v !== undefined && v !== null) params.set(k, String(v));
+      }
+      const queryStr = params.toString() ? `?${params.toString()}` : "";
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/audit-logs${queryStr}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to query audit logs");
+      return data;
+    }
+
+    /**
+     * Verify cryptographic Merkle hash chain of audit logs
+     * @returns {Promise<{ valid: boolean, message: string }>}
+     */
+    async verifyAuditTrail() {
+      const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/audit-logs/verify`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to verify audit trail");
+      return data;
+    }
+
     _rawFetch(url, options) {
+
       if (!this.fetchImpl) {
         throw new Error("[DevAuthKit] No fetch implementation found. Pass customFetch in options.");
       }

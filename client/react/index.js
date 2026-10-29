@@ -123,6 +123,8 @@ function AuthProvider({ client, initialUser = null, children }) {
       isAuthenticated: Boolean(user || token),
       isDPoPBound,
       isLoading,
+      isImpersonating: Boolean(user?.act || authClient.isImpersonating()),
+      actorUser: user?.act || authClient.getActorUser(),
       client: authClient,
       sendOTP,
       verifyOTP,
@@ -130,7 +132,9 @@ function AuthProvider({ client, initialUser = null, children }) {
       refresh,
       getProfile,
       loginWithGoogle,
-      loginWithGitHub
+      loginWithGitHub,
+      impersonate: (userId, reason) => authClient.impersonate(userId, reason),
+      endImpersonation: () => authClient.endImpersonation()
     }),
     [
       user,
@@ -257,9 +261,136 @@ function useOrg() {
   };
 }
 
+/**
+ * Hook to manage multi-device active sessions.
+ * Must be used within an AuthProvider.
+ */
+function useSessions() {
+  const { client, token } = useAuth();
+  const [sessions, setSessions] = React.useState([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  const loadSessions = React.useCallback(async () => {
+    if (!client.isAuthenticated()) {
+      setSessions([]);
+      setIsLoading(false);
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const list = await client.listSessions();
+      setSessions(list);
+    } catch (e) {
+      // Ignore error
+    } finally {
+      setIsLoading(false);
+    }
+  }, [client]);
+
+  React.useEffect(() => {
+    loadSessions();
+  }, [loadSessions, token]);
+
+  const revokeSession = React.useCallback(
+    async (sessionId) => {
+      const res = await client.revokeSession(sessionId);
+      await loadSessions();
+      return res;
+    },
+    [client, loadSessions]
+  );
+
+  const revokeOtherSessions = React.useCallback(
+    async () => {
+      const res = await client.revokeOtherSessions();
+      await loadSessions();
+      return res;
+    },
+    [client, loadSessions]
+  );
+
+  return {
+    sessions,
+    isLoading,
+    loadSessions,
+    revokeSession,
+    revokeOtherSessions
+  };
+}
+
+/**
+ * Hook to manage scoped API keys.
+ * Must be used within an AuthProvider.
+ */
+function useApiKeys() {
+  const { client, token } = useAuth();
+  const [apiKeys, setApiKeys] = React.useState([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  const loadApiKeys = React.useCallback(async () => {
+    if (!client.isAuthenticated()) {
+      setApiKeys([]);
+      setIsLoading(false);
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const list = await client.listApiKeys();
+      setApiKeys(list);
+    } catch (e) {
+      // Ignore error
+    } finally {
+      setIsLoading(false);
+    }
+  }, [client]);
+
+  React.useEffect(() => {
+    loadApiKeys();
+  }, [loadApiKeys, token]);
+
+  const createApiKey = React.useCallback(
+    async (options) => {
+      const res = await client.createApiKey(options);
+      await loadApiKeys();
+      return res;
+    },
+    [client, loadApiKeys]
+  );
+
+  const revokeApiKey = React.useCallback(
+    async (keyId) => {
+      const res = await client.revokeApiKey(keyId);
+      await loadApiKeys();
+      return res;
+    },
+    [client, loadApiKeys]
+  );
+
+  const rollApiKey = React.useCallback(
+    async (keyId) => {
+      const res = await client.rollApiKey(keyId);
+      await loadApiKeys();
+      return res;
+    },
+    [client, loadApiKeys]
+  );
+
+  return {
+    apiKeys,
+    isLoading,
+    loadApiKeys,
+    createApiKey,
+    revokeApiKey,
+    rollApiKey
+  };
+}
+
 module.exports = {
   AuthProvider,
   useAuth,
   useOrg,
+  useSessions,
+  useApiKeys,
   AuthContext
 };
+

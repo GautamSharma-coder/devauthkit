@@ -293,6 +293,76 @@ export class DevAuthClient {
     emailOrDomain: string,
     relayState?: string
   ): Promise<{ success: boolean; type: "SAML" | "OIDC"; redirectUrl: string; connectionId: string }>;
+
+  /**
+   * Start an impersonation session (Admin only)
+   */
+  impersonate(userId: string, reason?: string): Promise<{ token: string; targetUser: any; actor: any }>;
+
+  /**
+   * End active impersonation session and restore admin identity
+   */
+  endImpersonation(): Promise<{ success: boolean }>;
+
+  /**
+   * Whether the client is currently in an impersonated session
+   */
+  isImpersonating(): boolean;
+
+  /**
+   * Get the administrator actor who initiated the current impersonation session
+   */
+  getActorUser(): any | null;
+
+  /**
+   * List all active sessions across devices
+   */
+  listSessions(): Promise<any[]>;
+
+  /**
+   * Revoke a specific session by ID
+   */
+  revokeSession(sessionId: string): Promise<{ success: boolean }>;
+
+  /**
+   * Revoke all other active sessions except the current one
+   */
+  revokeOtherSessions(): Promise<{ success: boolean; revokedCount: number }>;
+
+  /**
+   * List API keys for the current user or organization
+   */
+  listApiKeys(): Promise<any[]>;
+
+  /**
+   * Create a new scoped API key
+   */
+  createApiKey(options: {
+    name: string;
+    scopes?: string[] | string;
+    expiresInDays?: number;
+    env?: "live" | "test";
+  }): Promise<{ key: any; rawKey: string }>;
+
+  /**
+   * Revoke an API key
+   */
+  revokeApiKey(keyId: string): Promise<{ success: boolean }>;
+
+  /**
+   * Roll (rotate) an API key
+   */
+  rollApiKey(keyId: string): Promise<{ key: any; rawKey: string }>;
+
+  /**
+   * Query audit logs (Admin/Org Owner only)
+   */
+  listAuditLogs(filters?: Record<string, any>): Promise<{ entries: any[]; total: number }>;
+
+  /**
+   * Verify cryptographic Merkle hash chain of audit logs
+   */
+  verifyAuditTrail(): Promise<{ valid: boolean; message: string }>;
 }
 
 export function createDevAuthClient(options?: DevAuthClientOptions): DevAuthClient;

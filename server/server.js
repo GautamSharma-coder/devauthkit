@@ -385,4 +385,33 @@ devAuthKit.RedisDpopReplayStore = RedisDpopReplayStore;
 devAuthKit.MemoryDpopReplayStore = MemoryDpopReplayStore;
 devAuthKit.dpop = dpopService;
 
+// v2 Next-Gen Architectural Exports
+const requireApiKey = require("./middleware/requireApiKey");
+const { AuditLogService, emitAuditLog } = require("./core/auditLogService");
+const { MemoryAuditLogStore } = require("./stores/memoryAuditLogStore");
+const { CloudflareD1AuditLogStore } = require("./stores/cloudflareD1AuditLogStore");
+const { ApiKeyService, matchesScopes, verifyKeyChecksum } = require("./core/apiKeyService");
+const { MemoryApiKeyStore } = require("./stores/memoryApiKeyStore");
+const { CloudflareD1ApiKeyStore } = require("./stores/cloudflareD1ApiKeyStore");
+const { SessionService, defaultSessionService } = require("./core/sessionService");
+const { blockUser, unblockUser, isUserBlocked, getUserEpoch } = require("./controllers/userManagementController");
+
+devAuthKit.requireApiKey = requireApiKey;
+devAuthKit.AuditLogService = AuditLogService;
+devAuthKit.emitAuditLog = emitAuditLog;
+devAuthKit.MemoryAuditLogStore = MemoryAuditLogStore;
+devAuthKit.CloudflareD1AuditLogStore = CloudflareD1AuditLogStore;
+devAuthKit.ApiKeyService = ApiKeyService;
+devAuthKit.matchesScopes = matchesScopes;
+devAuthKit.verifyKeyChecksum = verifyKeyChecksum;
+devAuthKit.MemoryApiKeyStore = MemoryApiKeyStore;
+devAuthKit.CloudflareD1ApiKeyStore = CloudflareD1ApiKeyStore;
+devAuthKit.SessionService = SessionService;
+devAuthKit.sessionService = defaultSessionService;
+devAuthKit.blockUser = blockUser;
+devAuthKit.unblockUser = unblockUser;
+devAuthKit.isUserBlocked = isUserBlocked;
+devAuthKit.getUserEpoch = getUserEpoch;
+
 module.exports = devAuthKit;
+

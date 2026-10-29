@@ -17,6 +17,7 @@
 **DevAuthKit** is a lightweight, zero-config self-hosted authentication toolkit for Node.js & Express with a universal companion Client SDK. Built for developers who want plug-and-play passwordless email OTP authentication, JWT Bearer tokens, and secure `httpOnly` sessions without paying exorbitant SaaS pricing (Clerk/Auth0) or wrestling with complex configuration (NextAuth/Passport).
 
 📚 **[Read the Full Documentation & API Reference →](https://gautamsharma-coder.github.io/devauthkit/docs.html)**  
+🏛️ **[Read the Next-Gen Architecture Specification (v2.0) →](ARCHITECTURE.md)**  
 🌐 **[Live Demo & Interactive Sandbox →](https://gautamsharma-coder.github.io/devauthkit/)**  
 ⚡ **[Run in 1-Click on StackBlitz →](https://stackblitz.com/github/GautamSharma-coder/devauthkit)**
 
@@ -30,7 +31,7 @@
 
 ### ⚡ Why DevAuthKit? (Comparison)
 
-| Feature | **DevAuthKit** | Clerk / Auth0 | NextAuth / Auth.js | Passport.js |
+| Feature | **DevAuthKit v2** | Clerk / Auth0 | NextAuth / Auth.js | Passport.js |
 | :--- | :---: | :---: | :---: | :---: |
 | **Pricing** | **100% Free / Self-Hosted** | $$$ / MAU Tier Limits | Free | Free |
 | **Setup Time** | **< 3 minutes** | 5 minutes | 30+ minutes | 2+ hours |
@@ -39,8 +40,11 @@
 | **1-Click Magic Links** | ✅ **Built-in** | ✅ | Manual Config | ❌ Manual |
 | **Social Login (OAuth 2.0)** | ✅ **Google + GitHub (PKCE)** | Vendor Cloud | Plugins required | Manual strategies |
 | **Zero-Setup Dev Mode** | ✅ **Console OTPs** | ❌ Requires Cloud Account | ❌ | ❌ |
-| **Email Providers** | **Resend + SMTP + Custom** | Vendor Cloud | Nodemailer / Custom | Manual |
-| **Dual/Triple Strategy** | **Bearer + httpOnly Cookie + Session** | Proprietary SDK | Session / JWT | Strategy plugins |
+| **Immutable Audit Logs** | 🔍 **SHA-256 Merkle Chain** | $$$ Enterprise only | ❌ None | ❌ None |
+| **User Impersonation** | 👤 **RFC 8693 Non-Repudiable** | Built-in (Cloud) / API | ❌ None | ❌ None |
+| **Machine Identity (API Keys)** | 🔑 **Scoped + CRC32 Fast-Path** | $$$ M2M Tier | ❌ None | ❌ None |
+| **Multi-Device Sessions** | 📱 **Global Remote Kill** | Cloud Dashboard | ❌ None | ❌ None |
+| **Instant Account Suspension** | 🚫 **Atomic Epoch Cascade** | Management API | ❌ Manual DB update | ❌ None |
 | **Token Theft Defense (DPoP)** | 🛡️ **RFC 9449 Key Binding** | ❌ Bearer only | ❌ Bearer only | ❌ Bearer only |
 | **Multi-Tenancy & Workspaces** | 🏢 **Turnkey B2B Workspaces** | $$$ Add-on Tier | ❌ Complex / Manual | ❌ None |
 | **Webhooks Engine** | 🪝 **HMAC-SHA256 (Svix/Stripe)** | $$$ Enterprise only | ❌ Manual | ❌ None |
@@ -53,6 +57,11 @@
 
 ## ✨ Features
 
+- 🔍 **Immutable Audit Logs (SOC 2 / HIPAA Ready)**: Cryptographically sealed, tamper-evident audit logging using SHA-256 Merkle hash chaining. Zero HTTP request latency overhead via an asynchronous microtask ring buffer. Multi-dimensional querying and SIEM-compatible NDJSON streaming export (`GET /auth/audit-logs/export`).
+- 👤 **RFC 8693 User Impersonation ("Act As User")**: Secure, non-repudiable customer support impersonation. Issues short-lived dual-identity tokens with `sub: target_user` and `act: { sub: admin_user }`. Enforces zero delegation depth and administrative barriers.
+- 🔑 **Scoped Machine Identity & API Keys (M2M / AI Agents)**: Prefix-routed API keys (`dak_live_...` / `dak_test_...`) with sub-millisecond CRC32 fast-path checksum rejection, salted SHA-256 digest storage, LRU caching, hierarchical scope evaluation (`write:billing:*`), and instant key rotation.
+- 📱 **Multi-Device Session Orchestrator**: Real-time environmental fingerprinting (device type, operating system, browser, IP), active device topology tracking, and instant remote session invalidation ("Revoke All Other Devices").
+- 🚫 **Instant Zero-Trust Account Suspension**: Atomic suspension cascade that immediately invalidates all active access tokens across edge nodes via monotonic revocation epochs without requiring database hits on normal requests.
 - 🛡️ **Enterprise SSO (SAML 2.0 & OIDC)**: Zero-cost self-hosted alternative to WorkOS ($125/conn/mo) and Auth0 Enterprise ($800+/mo). Multi-tenant Service Provider engine with zero native C++ dependencies (runs on Node.js and Cloudflare Workers). XML Exclusive Canonicalization (C14N), RSA-SHA256 signature verification, dual rolling certificate rollover, universal domain routing (`/auth/sso/resolve`), dynamic SP Metadata XML, and strict defenses against XXE, XSW (XML Signature Wrapping), and replay attacks.
 - 👥 **SCIM 2.0 Directory Sync (RFC 7643 & RFC 7644)**: Turnkey automated enterprise employee lifecycle management. Auto-provisions and synchronizes users and groups from Okta, Azure AD, OneLogin, and PingFederate. Features instantaneous deprovisioning cascade: when an employee is deactivated in the IdP, their organization membership is immediately revoked and all active refresh sessions across clusters are purged.
 - 🪝 **Cryptographically Signed Webhooks**: Outbound event delivery with HMAC-SHA256 signatures (`DevAuth-Signature: t=...,v1=...`), anti-replay tolerance windows, constant-time verification, wildcard routing (`org.*`), non-blocking asynchronous event bus, exponential backoff retries, and delivery logging across Node.js and Cloudflare Workers.
@@ -1172,13 +1181,23 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 
 ## 🔖 Version Changelog
 
-- **v1.9.0 (Latest)**:
+- **v1.10.0 (Latest)**:
+  - **Immutable Audit Trail (SOC 2 / HIPAA Ready)**: Cryptographically chained, tamper-evident audit logging with SHA-256 Merkle chaining, non-blocking asynchronous microtask processing, and SIEM-compatible NDJSON streaming (`GET /auth/audit-logs/export`).
+  - **RFC 8693 User Impersonation ("Act As User")**: Zero-delegation customer support session impersonation with dual identity tracking (`act: { sub: admin }`) and non-repudiable audit logging.
+  - **Machine Identity & Prefix-Routed Scoped API Keys**: `dak_live_` and `dak_test_` keys with sub-0.01ms CRC32 fast-path checksum validation, salted SHA-256 digests, and hierarchical wildcard scope gating (`read:org:*`).
+  - **Multi-Device Session Orchestrator**: Device fingerprinting, active session topology mapping, and instant remote session invalidation (`POST /auth/sessions/revoke-others`).
+  - **Zero-Trust Account Suspension Cascade**: Atomic user suspension with monotonic revocation epochs, instantly invalidating all active JWTs and sessions across clusters.
+  - **TypeScript Declarations**: Added complete `.d.ts` definitions for `./audit`, `./apikeys`, and `./sessions`.
+  - **Expanded Automated Test Suite**: Added `test_v2_features.js` bringing total passing test assertions across the entire suite to over 300+ assertions with 100% pass rate.
+
+- **v1.9.0**:
   - **Enterprise SSO (SAML 2.0 & OIDC)**: Zero-cost self-hosted alternative to WorkOS ($125/conn/mo) and Auth0 Enterprise ($800+/mo). Multi-tenant Service Provider engine with zero native C++ dependencies (runs on Node.js and Cloudflare Workers). XML Exclusive Canonicalization (C14N), RSA-SHA256 signature verification, dual rolling certificate rollover, universal domain routing (`/auth/sso/resolve`), dynamic SP Metadata XML, and strict defenses against XXE, XSW (XML Signature Wrapping), and replay attacks.
   - **SCIM 2.0 Directory Sync (RFC 7643 & RFC 7644)**: Turnkey automated enterprise employee lifecycle management. Auto-provisions and synchronizes users and groups from Okta, Azure AD, OneLogin, and PingFederate.
   - **Instant Deprovisioning Cascades**: When an employee is deactivated via SCIM `PATCH /scim/v2/Users/:id`, their organization membership is revoked and all active sessions/refresh tokens across clusters are immediately invalidated.
   - **MemorySsoStore & CloudflareD1SsoStore**: Dual storage engines for SSO connections, IdP metadata, domain mapping, assertion anti-replay caches, and SCIM directory tokens.
   - **Workers & Hono Edge Parity**: Full enterprise SSO domain routing and SCIM RFC-conforming endpoints on Cloudflare Workers edge runtime.
   - **Expanded Automated Test Suite**: Added `test_sso_scim.js` bringing total passing test assertions across the entire suite to over 250+ assertions with 100% pass rate.
+
 - **v1.8.0**:
   - **Cryptographically Signed Webhooks Engine (HMAC-SHA256)**: Outbound event bus and delivery engine conforming to the Svix / Stripe signature standard (`DevAuth-Signature: t=...,v1=...`).
   - Added `verifyWebhookSignature` with anti-replay tolerance windows (default 300s) and timing-safe constant-time equality checks.
@@ -1187,6 +1206,7 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
   - Added `WebhookDispatcher` with non-blocking async microtask dispatch, exponential backoff retries, and delivery logging.
   - Added REST endpoints: `POST /auth/webhooks`, `GET /auth/webhooks`, `GET /auth/webhooks/:id`, `PATCH /auth/webhooks/:id`, `DELETE /auth/webhooks/:id`, `GET /auth/webhooks/:id/deliveries`, and `POST /auth/webhooks/:id/test`.
   - Automated test suite expanded to 8 test suites (including 54 new webhook assertions), 100% passing green.
+
 - **v1.7.0**:
   - **Multi-Tenancy & Organizations (B2B Workspaces)**: Out-of-the-box multi-tenant workspace isolation, team invitations, dynamic workspace switching, and tenant-scoped JWTs across Express and Hono.
   - Added role hierarchy (`owner`, `admin`, `member`, `billing`, `viewer`) with anti-privilege-escalation defenses (admins cannot elevate to owner, owners cannot abandon workspaces without transferring ownership).

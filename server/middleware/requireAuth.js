@@ -2,6 +2,7 @@ const { verifyJwt } = require("../utils/webCrypto");
 const config = require("../config");
 const defaultRefreshTokenStore = require("../stores/defaultRefreshTokenStore");
 const { verifyDPoPProof, DPoPError } = require("../core/dpopService");
+const { isUserBlocked, getUserEpoch } = require("../controllers/userManagementController");
 
 function getRefreshTokenStore() {
   return config.get("refreshTokenStore") || defaultRefreshTokenStore;
@@ -25,6 +26,24 @@ async function attachVerifiedToken(token, req, res, next, source) {
     decoded = await verifyJwt(token, config.get("jwtSecret"));
   } catch {
     return unauthorized(res, `Unauthorized: Invalid or expired ${source}`);
+  }
+
+  const userId = decoded.id || decoded.sub;
+
+  // Check account suspension status
+  if (userId && isUserBlocked(userId)) {
+    return res.status(403).json({
+      error: "account_suspended",
+      message: "Account has been suspended by an administrator"
+    });
+  }
+
+  // Check revocation epoch
+  if (decoded.uep !== undefined && userId) {
+    const currentEpoch = getUserEpoch(userId);
+    if (currentEpoch > decoded.uep) {
+      return unauthorized(res, "Unauthorized: Session has been revoked");
+    }
   }
 
   // DPoP Verification
@@ -90,6 +109,36 @@ async function attachVerifiedToken(token, req, res, next, source) {
     return res.status(503).json({ error: "Authentication service unavailable" });
   }
 
+  // Multi-Device Session Heartbeat Registration
+  const sessionService = config.get("sessionService");
+  if (sessionService && decoded.sid && typeof sessionService.registerSession === "function") {
+    sessionService.registerSession({
+      sessionId: decoded.sid,
+      userId,
+      ipAddress: req.ip || req.connection?.remoteAddress,
+      userAgent: req.headers["user-agent"]
+    });
+  }
+
+  // Handle RFC 8693 Impersonation Dual Attribution
+  if (decoded.act) {
+    req.actor = decoded.act;
+
+    // Security Boundary: Impersonated sessions cannot access credential management or admin routes
+    const path = (req.originalUrl || req.url || "").toLowerCase();
+    if (
+      path.includes("/api-keys") ||
+      path.includes("/impersonate") ||
+      path.includes("/block") ||
+      path.includes("/unblock")
+    ) {
+      return res.status(403).json({
+        error: "impersonation_restricted",
+        message: "Impersonated sessions cannot perform administrative or credential management actions"
+      });
+    }
+  }
+
   req.user = decoded;
   return next();
 }
@@ -97,6 +146,28 @@ async function attachVerifiedToken(token, req, res, next, source) {
 module.exports = async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization || req.headers.Authorization;
   if (authHeader) {
+    // Check for API Key (Bearer dak_...)
+    if (authHeader.startsWith("Bearer dak_")) {
+      const rawKey = authHeader.slice(7);
+      const apiKeyService = config.get("apiKeyService");
+      if (apiKeyService) {
+        const keyRecord = await apiKeyService.verifyKey(rawKey);
+        if (keyRecord) {
+          req.apiKey = keyRecord;
+          req.user = {
+            id: keyRecord.userId,
+            org_id: keyRecord.orgId || null,
+            role: "apiKey",
+            isApiKey: true,
+            scopes: keyRecord.scopes,
+            apiKeyId: keyRecord.id
+          };
+          return next();
+        }
+      }
+      return unauthorized(res, "Unauthorized: Invalid or revoked API key");
+    }
+
     let token = null;
     if (authHeader.startsWith("Bearer ")) {
       token = authHeader.slice(7);
@@ -110,6 +181,28 @@ module.exports = async function requireAuth(req, res, next) {
     return attachVerifiedToken(token, req, res, next, "token");
   }
 
+  // Check for x-api-key header
+  if (req.headers["x-api-key"] && req.headers["x-api-key"].startsWith("dak_")) {
+    const rawKey = req.headers["x-api-key"];
+    const apiKeyService = config.get("apiKeyService");
+    if (apiKeyService) {
+      const keyRecord = await apiKeyService.verifyKey(rawKey);
+      if (keyRecord) {
+        req.apiKey = keyRecord;
+        req.user = {
+          id: keyRecord.userId,
+          org_id: keyRecord.orgId || null,
+          role: "apiKey",
+          isApiKey: true,
+          scopes: keyRecord.scopes,
+          apiKeyId: keyRecord.id
+        };
+        return next();
+      }
+    }
+    return unauthorized(res, "Unauthorized: Invalid or revoked API key");
+  }
+
   const cookieName = config.get("cookieName") || "devauth_token";
   let cookieToken = req.cookies?.[cookieName] || null;
   if (!cookieToken && req.headers?.cookie) {
@@ -119,6 +212,14 @@ module.exports = async function requireAuth(req, res, next) {
   if (cookieToken) return attachVerifiedToken(cookieToken, req, res, next, "cookie token");
 
   if (req.session?.user) {
+    const userId = req.session.user.id || req.session.user.sub;
+    if (userId && isUserBlocked(userId)) {
+      return res.status(403).json({
+        error: "account_suspended",
+        message: "Account has been suspended by an administrator"
+      });
+    }
+
     try {
       if (!(await validateFamily(req.session.user))) {
         return unauthorized(res, "Unauthorized: Session has been revoked");

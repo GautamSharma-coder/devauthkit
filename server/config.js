@@ -6,6 +6,11 @@ const { MemoryOrganizationStore } = require("./stores/memoryOrganizationStore");
 const { MemoryWebhookStore } = require("./stores/memoryWebhookStore");
 const { MemorySsoStore } = require("./stores/memorySsoStore");
 const { WebhookDispatcher } = require("./core/webhookDispatcher");
+const { MemoryAuditLogStore } = require("./stores/memoryAuditLogStore");
+const { AuditLogService } = require("./core/auditLogService");
+const { MemoryApiKeyStore } = require("./stores/memoryApiKeyStore");
+const { ApiKeyService } = require("./core/apiKeyService");
+const { defaultSessionService } = require("./core/sessionService");
 
 const defaultConfig = {
   corsOrigin: "http://localhost:3001",
@@ -53,6 +58,15 @@ const defaultConfig = {
   dpopReplayStore: undefined,
   dpopNonce: undefined,
   dpopMaxClockSkewSeconds: 60,
+  // v2 Next-Gen Features
+  audit: true,
+  auditStore: undefined,
+  auditService: undefined,
+  apiKeys: true,
+  apiKeyStore: undefined,
+  apiKeyService: undefined,
+  impersonation: { enabled: true, maxTtlSeconds: 3600 },
+  sessionService: undefined,
   rateLimit: {
     requestOtp: { windowMs: 60_000, max: 20, perIp: true, perEmail: true, perIpMax: 20, perEmailMax: 3 },
     verifyOtp: { windowMs: 15 * 60_000, max: 30, perIp: true, perEmail: true, perIpMax: 30, perEmailMax: 10 },
@@ -77,7 +91,13 @@ const defaultConfig = {
     passkeyAuthenticationOptions: { windowMs: 15 * 60_000, max: 30, perIp: true, perEmail: true, perEmailMax: 10 },
     passkeyAuthenticationVerify: { windowMs: 15 * 60_000, max: 20, perIp: true },
     passkeyList: { windowMs: 15 * 60_000, max: 60, perIp: true },
-    passkeyDelete: { windowMs: 15 * 60_000, max: 10, perIp: true }
+    passkeyDelete: { windowMs: 15 * 60_000, max: 10, perIp: true },
+    // v2 Rate Limit Rules
+    createApiKey: { windowMs: 15 * 60_000, max: 20, perIp: true },
+    listApiKeys: { windowMs: 15 * 60_000, max: 60, perIp: true },
+    impersonate: { windowMs: 15 * 60_000, max: 20, perIp: true },
+    blockUser: { windowMs: 15 * 60_000, max: 20, perIp: true },
+    listSessions: { windowMs: 15 * 60_000, max: 60, perIp: true }
   },
   rateLimitStore: undefined,
   emailProvider: environment.RESEND_API_KEY ? "resend" : "smtp",
@@ -119,6 +139,14 @@ module.exports = {
        (!hasResend && !hasSmtp && !hasCustomMailer))
     );
 
+    const auditStore = options.auditStore || (options.audit !== false ? new MemoryAuditLogStore() : undefined);
+    const auditService = options.auditService || (options.audit !== false ? new AuditLogService({ store: auditStore }) : undefined);
+
+    const apiKeyStore = options.apiKeyStore || (options.apiKeys !== false ? new MemoryApiKeyStore() : undefined);
+    const apiKeyService = options.apiKeyService || (options.apiKeys !== false ? new ApiKeyService({ store: apiKeyStore }) : undefined);
+
+    const sessionService = options.sessionService || defaultSessionService;
+
     currentConfig = {
       ...defaultConfig,
       ...options,
@@ -148,6 +176,15 @@ module.exports = {
       sso: Boolean(options.sso || options.ssoStore),
       ssoStore: options.ssoStore || options.sso?.store || ((options.sso || options.scim) ? new MemorySsoStore() : undefined),
       scim: Boolean(options.scim || options.ssoStore),
+      // v2 Next-Gen Injections
+      audit: options.audit !== false,
+      auditStore,
+      auditService,
+      apiKeys: options.apiKeys !== false,
+      apiKeyStore,
+      apiKeyService,
+      impersonation: { ...defaultConfig.impersonation, ...(options.impersonation || {}) },
+      sessionService,
       rateLimit: mergeRateLimitRules(options.rateLimit),
       rateLimitStore: options.rateLimitStore,
       sessionSecret: options.sessionSecret || environment.SESSION_SECRET || defaultConfig.sessionSecret || randomString(32),

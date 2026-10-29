@@ -1,6 +1,6 @@
 {
   "name": "devauthkit",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "A plug-and-play authentication service for developers",
   "main": "index.js",
   "types": "./index.d.ts",
@@ -104,6 +104,34 @@
     "./react": {
       "types": "./client/react/index.d.ts",
       "default": "./client/react/index.js"
+    },
+    "./audit": {
+      "default": "./server/core/auditLogService.js",
+      "types": "./server/core/auditLogService.d.ts"
+    },
+    "./stores/memory-audit": {
+      "types": "./server/stores/memoryAuditLogStore.d.ts",
+      "default": "./server/stores/memoryAuditLogStore.js"
+    },
+    "./stores/cloudflare-d1-audit": {
+      "types": "./server/stores/cloudflareD1AuditLogStore.d.ts",
+      "default": "./server/stores/cloudflareD1AuditLogStore.js"
+    },
+    "./apikeys": {
+      "default": "./server/core/apiKeyService.js",
+      "types": "./server/core/apiKeyService.d.ts"
+    },
+    "./stores/memory-apikeys": {
+      "types": "./server/stores/memoryApiKeyStore.d.ts",
+      "default": "./server/stores/memoryApiKeyStore.js"
+    },
+    "./stores/cloudflare-d1-apikeys": {
+      "types": "./server/stores/cloudflareD1ApiKeyStore.d.ts",
+      "default": "./server/stores/cloudflareD1ApiKeyStore.js"
+    },
+    "./sessions": {
+      "default": "./server/core/sessionService.js",
+      "types": "./server/core/sessionService.d.ts"
     }
   },
   "peerDependencies": {
@@ -129,7 +157,7 @@
   "scripts": {
     "start": "node example.js",
     "dev": "nodemon example.js",
-    "test": "node test_auth.js && node test_redis_refresh_token_store.js && node test_mfa.js && node test_passkeys.js && node test_cloudflare.js && node test_dpop.js && node test_organizations.js && node test_webhooks.js && node test_sso_scim.js",
+    "test": "node test_auth.js && node test_redis_refresh_token_store.js && node test_mfa.js && node test_passkeys.js && node test_cloudflare.js && node test_dpop.js && node test_organizations.js && node test_webhooks.js && node test_sso_scim.js && node test_v2_features.js",
     "prepublishOnly": "npm test"
   },
   "repository": {

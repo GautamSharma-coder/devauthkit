@@ -142,4 +142,41 @@ router.get("/me", requireAuth, getMe);
 router.post("/logout", rateLimit("logout"), logout);
 router.get("/logout", rateLimit("logout"), logout); // also support GET for quick link clicks
 
+// ==========================================
+// DevAuthKit v2 Next-Gen Feature Routes
+// ==========================================
+
+// 1. Immutable Audit Logs & Merkle Verification
+const auditLogController = require("../controllers/auditLogController");
+router.get("/audit-logs", requireAuth, auditLogController.queryAuditLogs);
+router.get("/audit-logs/export", requireAuth, auditLogController.exportAuditLogs);
+router.get("/audit-logs/:id", requireAuth, auditLogController.getAuditLog);
+router.post("/audit-logs/verify", requireAuth, auditLogController.verifyAuditTrail);
+
+// 2. Machine Identity & Scoped API Keys
+const apiKeyController = require("../controllers/apiKeyController");
+router.post("/api-keys", requireAuth, rateLimit("createApiKey"), apiKeyController.createApiKey);
+router.get("/api-keys", requireAuth, rateLimit("listApiKeys"), apiKeyController.listApiKeys);
+router.get("/api-keys/:id", requireAuth, apiKeyController.getApiKey);
+router.patch("/api-keys/:id", requireAuth, apiKeyController.updateApiKey);
+router.delete("/api-keys/:id", requireAuth, apiKeyController.revokeApiKey);
+router.post("/api-keys/:id/roll", requireAuth, apiKeyController.rollApiKey);
+
+// 3. RFC 8693 User Impersonation ("Act As")
+const impersonationController = require("../controllers/impersonationController");
+router.post("/impersonate", requireAuth, rateLimit("impersonate"), impersonationController.startImpersonation);
+router.post("/end-impersonation", requireAuth, impersonationController.endImpersonation);
+
+// 4. User Status, Blocking & Suspension Cascade
+const userManagementController = require("../controllers/userManagementController");
+router.post("/users/:userId/block", requireAuth, rateLimit("blockUser"), userManagementController.blockUser);
+router.post("/users/:userId/unblock", requireAuth, rateLimit("blockUser"), userManagementController.unblockUser);
+router.get("/users/:userId/status", requireAuth, userManagementController.getUserStatus);
+
+// 5. Multi-Device Sessions & Remote Revocation
+const sessionController = require("../controllers/sessionController");
+router.get("/sessions", requireAuth, rateLimit("listSessions"), sessionController.listSessions);
+router.delete("/sessions/:id", requireAuth, sessionController.revokeSession);
+router.post("/sessions/revoke-others", requireAuth, sessionController.revokeOtherSessions);
+
 module.exports = router;

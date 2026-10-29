@@ -909,6 +909,23 @@ export interface DevAuthKitInstance {
   scim: any;
   MemorySsoStore: any;
   CloudflareD1SsoStore: any;
+  // v2 Next-Gen Exports
+  requireApiKey: (requiredScopes?: string[] | string) => AuthMiddleware;
+  AuditLogService: any;
+  emitAuditLog: (event: any) => Promise<any>;
+  MemoryAuditLogStore: any;
+  CloudflareD1AuditLogStore: any;
+  ApiKeyService: any;
+  matchesScopes: (granted: string[] | string, required: string[] | string) => boolean;
+  verifyKeyChecksum: (rawKey: string) => boolean;
+  MemoryApiKeyStore: any;
+  CloudflareD1ApiKeyStore: any;
+  SessionService: any;
+  sessionService: any;
+  blockUser: (req: any, res: any) => Promise<any>;
+  unblockUser: (req: any, res: any) => Promise<any>;
+  isUserBlocked: (userId: string) => boolean;
+  getUserEpoch: (userId: string) => number;
 }
 
 export interface ConfigCheckIssue {
@@ -939,3 +956,4 @@ export {
   requireOrgRole,
   requireOrgPermission
 };
+
