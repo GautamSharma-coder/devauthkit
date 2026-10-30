@@ -1,3 +1,19 @@
+// Ensure Node 18 compatibility for Miniflare / undici which expects global File and SubtleCrypto
+if (typeof globalThis.File === "undefined") {
+  try {
+    const { File } = require("node:buffer");
+    globalThis.File = File;
+  } catch {}
+}
+if (typeof globalThis.SubtleCrypto === "undefined") {
+  try {
+    const nodeCrypto = require("node:crypto");
+    globalThis.SubtleCrypto = nodeCrypto.webcrypto?.SubtleCrypto || class SubtleCrypto {};
+  } catch {
+    globalThis.SubtleCrypto = class SubtleCrypto {};
+  }
+}
+
 const assert = require("node:assert/strict");
 const { Miniflare } = require("miniflare");
 const { Hono } = require("hono");
