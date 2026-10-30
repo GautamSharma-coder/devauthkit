@@ -30,6 +30,11 @@ const { CloudflareD1DpopReplayStore } = require("./server/stores/cloudflareD1Dpo
 const { createAuthRouter } = require("./server/hono");
 
 async function run() {
+  const nodeMajor = parseInt(process.versions.node.split('.')[0], 10);
+  if (nodeMajor < 20) {
+    console.log('Cloudflare Miniflare integration tests skipped on Node ' + process.version + ' (Miniflare 4 requires Node >= 20.0.0).');
+    return;
+  }
   const miniflare = new Miniflare({
     script: 'export default { fetch() { return new Response("ok"); } }',
     modules: true,
