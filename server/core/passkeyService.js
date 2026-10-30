@@ -1,3 +1,13 @@
+// Ensure Node 18 compatibility for @simplewebauthn/server which accesses globalThis.SubtleCrypto.supports
+if (typeof globalThis.SubtleCrypto === "undefined") {
+  try {
+    const nodeCrypto = require("node:crypto");
+    globalThis.SubtleCrypto = nodeCrypto.webcrypto?.SubtleCrypto || class SubtleCrypto {};
+  } catch {
+    globalThis.SubtleCrypto = class SubtleCrypto {};
+  }
+}
+
 class PasskeyServiceError extends Error {
   constructor(status, message) {
     super(message);

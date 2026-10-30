@@ -1,4 +1,12 @@
 // server/server.js
+if (typeof globalThis.SubtleCrypto === "undefined") {
+  try {
+    const nodeCrypto = require("node:crypto");
+    globalThis.SubtleCrypto = nodeCrypto.webcrypto?.SubtleCrypto || class SubtleCrypto {};
+  } catch {
+    globalThis.SubtleCrypto = class SubtleCrypto {};
+  }
+}
 const express = require("express");
 const session = require("express-session");
 const dotenv = require("dotenv");

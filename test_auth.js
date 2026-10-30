@@ -1,4 +1,12 @@
 // test_auth.js
+if (typeof globalThis.SubtleCrypto === "undefined") {
+  try {
+    const nodeCrypto = require("node:crypto");
+    globalThis.SubtleCrypto = nodeCrypto.webcrypto?.SubtleCrypto || class SubtleCrypto {};
+  } catch {
+    globalThis.SubtleCrypto = class SubtleCrypto {};
+  }
+}
 const express = require("express");
 const devAuthKit = require("./server/server.js");
 const sessionStore = require("./server/sessionStore.js");
