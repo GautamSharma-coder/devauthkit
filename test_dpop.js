@@ -593,11 +593,8 @@ async function runDPoPTests() {
   );
 
   console.log(`\n🎉 DPoP Results: ${passed}/${total} tests passed!\n`);
-  if (passed !== total) {
-    process.exit(1);
-  }
+  process.exit(passed === total ? 0 : 1);
 }
-
 runDPoPTests().catch((err) => {
   console.error("❌ Test suite encountered unhandled error:", err);
   process.exit(1);

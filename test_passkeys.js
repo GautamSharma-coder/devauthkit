@@ -148,7 +148,4 @@ async function run() {
   console.log("Passkey service tests passed");
 }
 
-run().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+run().then(() => process.exit(0)).catch((err) => { console.error(err); process.exit(1); });

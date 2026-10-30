@@ -497,11 +497,8 @@ async function runOrganizationTests() {
   console.log(`📊 Organization Test Summary: ${passed}/${total} assertions passed`);
   console.log(`==============================================\n`);
 
-  if (passed !== total) {
-    process.exit(1);
-  }
+  process.exit(passed === total ? 0 : 1);
 }
-
 runOrganizationTests().catch((err) => {
   console.error("❌ Test crashed:", err);
   process.exit(1);

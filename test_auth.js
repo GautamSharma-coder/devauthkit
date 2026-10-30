@@ -1381,8 +1381,8 @@ async function runTests() {
   } catch (err) {
     console.error("Test runner encountered error:", err);
   } finally {
-    process.exitCode = passed === total ? 0 : 1;
     server.close();
+    process.exit(passed === total ? 0 : 1);
   }
 }
 
