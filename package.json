@@ -1,6 +1,6 @@
 {
   "name": "devauthkit",
-  "version": "1.10.2",
+  "version": "1.10.3",
   "description": "A plug-and-play authentication service for developers",
   "main": "index.js",
   "types": "./index.d.ts",
