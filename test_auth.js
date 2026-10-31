@@ -1109,6 +1109,25 @@ async function runTests() {
       const magicReplayRes = await fetch(`${magicUrl}/auth/verify-magic?token=${magicToken}`);
       assert(magicReplayRes.status === 401, "verifyMagicLink rejects already-consumed magic link tokens");
 
+      // Concurrency edge-case: two requests try to redeem the same magic link simultaneously
+      const raceReqRes = await fetch(`${magicUrl}/auth/request-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "race@example.com", magicLink: true })
+      });
+      const raceReqData = await raceReqRes.json();
+      const raceToken = new URL(raceReqData.magicLinkUrl).searchParams.get("token");
+
+      const [raceRes1, raceRes2] = await Promise.all([
+        fetch(`${magicUrl}/auth/verify-magic?token=${raceToken}&email=race@example.com`),
+        fetch(`${magicUrl}/auth/verify-magic?token=${raceToken}&email=race@example.com`)
+      ]);
+      const raceStatuses = [raceRes1.status, raceRes2.status].sort((a, b) => a - b);
+      assert(
+        raceStatuses[0] === 200 && raceStatuses[1] === 401,
+        "Atomic race condition defense: simultaneous redemption attempts allow exactly one success (200) and reject duplicates (401)"
+      );
+
       // Client SDK verifyMagicLink
       const clientReqRes = await fetch(`${magicUrl}/auth/request-otp`, {
         method: "POST",

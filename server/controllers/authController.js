@@ -421,13 +421,21 @@ exports.verifyMagicLink = async (req, res) => {
     }
 
     const tokenHash = await sha256Hex(String(token).trim());
-    const entry = await getMagicLinkStore().get(tokenHash);
+    const store = getMagicLinkStore();
+    let entry;
+    if (typeof store.consume === "function") {
+      entry = await store.consume(tokenHash);
+    } else if (store instanceof Map) {
+      entry = store.get(tokenHash);
+      if (entry) store.delete(tokenHash);
+    } else {
+      entry = await store.get(tokenHash);
+      if (entry) await store.delete(tokenHash);
+    }
 
     if (!entry) {
       return res.status(401).json({ error: "Invalid or already used magic link" });
     }
-
-    await getMagicLinkStore().delete(tokenHash);
 
     if (Date.now() > entry.expiresAt) {
       return res.status(401).json({ error: "Magic link has expired. Please request a new one." });
