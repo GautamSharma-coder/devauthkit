@@ -580,7 +580,9 @@ function createAuthRouter(options = {}) {
   }
 
   router.post(`${prefix}/request-otp`, dispatch(authController.requestOTP, "requestOtp"));
+  router.post(`${prefix}/login`, dispatch(authController.requestOTP, "requestOtp"));
   router.post(`${prefix}/verify-otp`, dispatch(authController.verifyOTP, "verifyOtp"));
+  router.post(`${prefix}/verify`, dispatch(authController.verifyOTP, "verifyOtp"));
   router.post(`${prefix}/verify-magic`, dispatch(authController.verifyMagicLink, "verifyMagicLink"));
   router.get(`${prefix}/verify-magic`, dispatch(authController.verifyMagicLink, "verifyMagicLink"));
   router.get(`${prefix}/github`, dispatch(authController.startGitHubOAuth, "githubStart"));

@@ -490,6 +490,9 @@ async function runOrganizationTests() {
     assert(sentOrgId === createdOrg.organization.id, "client.fetch automatically injects x-organization-id header");
 
   } finally {
+    if (typeof server.closeAllConnections === "function") {
+      server.closeAllConnections();
+    }
     server.close();
   }
 

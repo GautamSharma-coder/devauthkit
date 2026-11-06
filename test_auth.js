@@ -275,6 +275,23 @@ async function runTests() {
     assert(client.isAuthenticated() === false, "Client SDK: client.isAuthenticated() is false after logout");
     assert(client.getToken() === null, "Client SDK: client.getToken() is null after logout");
 
+    // Non-JSON HTTP error handling
+    const nonJsonErrorClient = new DevAuthClient({
+      apiUrl: "https://mock.test",
+      customFetch: async () => new Response("404 Not Found", {
+        status: 404,
+        statusText: "Not Found",
+        headers: { "Content-Type": "text/plain" }
+      })
+    });
+    let nonJsonCaught = false;
+    try {
+      await nonJsonErrorClient.sendOTP("test@example.com");
+    } catch (err) {
+      nonJsonCaught = err.name === "Error" && err.message.includes("404 Not Found");
+    }
+    assert(nonJsonCaught, "Client SDK: gracefully handles non-JSON HTTP responses without SyntaxError");
+
     // Configurable asynchronous OTP storage
     console.log("\n🗄️ Testing custom asynchronous OTP storage...");
     const customEntries = new Map();
@@ -1399,7 +1416,11 @@ async function runTests() {
     console.log(`\n🎉 Results: ${passed}/${total} tests passed!\n`);
   } catch (err) {
     console.error("Test runner encountered error:", err);
+    process.exit(1);
   } finally {
+    if (typeof server.closeAllConnections === "function") {
+      server.closeAllConnections();
+    }
     server.close();
     process.exit(passed === total ? 0 : 1);
   }

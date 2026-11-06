@@ -1183,7 +1183,12 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 
 ## 🔖 Version Changelog
 
-- **v1.10.0 (Latest)**:
+- **v1.10.4 (Latest)**:
+  - **Hono Route Parity & Route Aliases**: Added `/auth/login` and `/auth/verify` route aliases to the Hono adapter (`createAuthRouter`), ensuring full parity with Express routes and seamless compatibility with `DevAuthClient.sendOTP()` and `DevAuthClient.verifyOTP()`.
+  - **Robust Client SDK Response Parsing**: Added defensive response handling (`_safeJson`) across `DevAuthClient` to gracefully handle non-JSON HTTP errors (such as 404 or 502 HTML/text responses) without throwing cryptic `SyntaxError` exceptions.
+  - **Expanded Regression Tests**: Added tests in `test_cloudflare.js` and `test_auth.js` verifying Hono route aliases and non-JSON error handling.
+
+- **v1.10.0**:
   - **Immutable Audit Trail (SOC 2 / HIPAA Ready)**: Cryptographically chained, tamper-evident audit logging with SHA-256 Merkle chaining, non-blocking asynchronous microtask processing, and SIEM-compatible NDJSON streaming (`GET /auth/audit-logs/export`).
   - **RFC 8693 User Impersonation ("Act As User")**: Zero-delegation customer support session impersonation with dual identity tracking (`act: { sub: admin }`) and non-repudiable audit logging.
   - **Machine Identity & Prefix-Routed Scoped API Keys**: `dak_live_` and `dak_test_` keys with sub-0.01ms CRC32 fast-path checksum validation, salted SHA-256 digests, and hierarchical wildcard scope gating (`read:org:*`).

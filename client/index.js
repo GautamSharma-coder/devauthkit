@@ -243,7 +243,7 @@
         body: JSON.stringify({ email: email.trim() }),
       });
 
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) {
         throw new Error(data.error || "Failed to send OTP");
       }
@@ -289,7 +289,7 @@
       const dpopNonceHeader = res.headers?.get ? res.headers.get("DPoP-Nonce") : res.headers?.["dpop-nonce"];
       if (dpopNonceHeader) this.dpopNonce = dpopNonceHeader;
 
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) {
         const error = new Error(data.error || "Verification failed");
         error.attemptsRemaining = data.attemptsRemaining;
@@ -351,7 +351,7 @@
       const dpopNonceHeader = res.headers?.get ? res.headers.get("DPoP-Nonce") : res.headers?.["dpop-nonce"];
       if (dpopNonceHeader) this.dpopNonce = dpopNonceHeader;
 
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) {
         throw new Error(data.error || "Magic link verification failed");
       }
@@ -416,7 +416,7 @@
       if (!res.ok) {
         throw new Error("Failed to fetch user profile");
       }
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (data.user) {
         this.storage.setItem(this.userKey, JSON.stringify(data.user));
       }
@@ -445,7 +445,7 @@
           const dpopNonceHeader = res.headers?.get ? res.headers.get("DPoP-Nonce") : res.headers?.["dpop-nonce"];
           if (dpopNonceHeader) this.dpopNonce = dpopNonceHeader;
 
-          const data = await res.json();
+          const data = await this._safeJson(res);
           if (!res.ok) {
             throw new Error(data.error || "Failed to refresh authentication");
           }
@@ -483,7 +483,7 @@
      */
     async listOrgs() {
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs`);
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.error || "Failed to list organizations");
       return data.organizations || [];
     }
@@ -503,7 +503,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params)
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.error || "Failed to create organization");
       return data;
     }
@@ -515,7 +515,7 @@
      */
     async getOrg(orgId) {
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}`);
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.error || "Failed to get organization");
       return data;
     }
@@ -529,7 +529,7 @@
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}/switch`, {
         method: "POST"
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.error || "Failed to switch organization");
 
       if (data.token) {
@@ -555,7 +555,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, role })
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.error || "Failed to invite member");
       return data;
     }
@@ -571,7 +571,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token })
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.error || "Failed to join organization");
 
       if (data.token) {
@@ -590,7 +590,7 @@
      */
     async listInvitations(orgId) {
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}/invites`);
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.error || "Failed to list invitations");
       return data.invitations || [];
     }
@@ -605,7 +605,7 @@
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}/invites/${inviteId}`, {
         method: "DELETE"
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.error || "Failed to revoke invitation");
       return data;
     }
@@ -623,7 +623,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role })
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.error || "Failed to update member role");
       return data;
     }
@@ -638,7 +638,7 @@
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/orgs/${orgId}/members/${userId}`, {
         method: "DELETE"
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.error || "Failed to remove member");
       return data;
     }
@@ -659,7 +659,7 @@
           relayState
         })
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) {
         throw new Error(data.error || "Failed to resolve Enterprise SSO");
       }
@@ -813,7 +813,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, reason })
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.message || data.error || "Failed to impersonate");
 
       // Save original admin token to restore on exit
@@ -849,7 +849,7 @@
         try {
           const meRes = await this.fetch(`${this.apiUrl}${this.apiPrefix}/me`);
           if (meRes.ok) {
-            const meData = await meRes.json();
+            const meData = await this._safeJson(meRes);
             this.storage.setItem(this.userKey, JSON.stringify(meData.user));
             this._notifyAuthChange(meData.user);
           }
@@ -874,7 +874,7 @@
      */
     async listSessions() {
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/sessions`);
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.message || data.error || "Failed to list sessions");
       return data.sessions || [];
     }
@@ -888,7 +888,7 @@
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/sessions/${sessionId}`, {
         method: "DELETE"
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.message || data.error || "Failed to revoke session");
       return data;
     }
@@ -901,7 +901,7 @@
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/sessions/revoke-others`, {
         method: "POST"
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.message || data.error || "Failed to revoke other sessions");
       return data;
     }
@@ -912,7 +912,7 @@
      */
     async listApiKeys() {
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/api-keys`);
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.message || data.error || "Failed to list API keys");
       return data.keys || [];
     }
@@ -932,7 +932,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(options || {})
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.message || data.error || "Failed to create API key");
       return data;
     }
@@ -946,7 +946,7 @@
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/api-keys/${keyId}`, {
         method: "DELETE"
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.message || data.error || "Failed to revoke API key");
       return data;
     }
@@ -960,7 +960,7 @@
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/api-keys/${keyId}/roll`, {
         method: "POST"
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.message || data.error || "Failed to roll API key");
       return data;
     }
@@ -977,7 +977,7 @@
       }
       const queryStr = params.toString() ? `?${params.toString()}` : "";
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/audit-logs${queryStr}`);
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.message || data.error || "Failed to query audit logs");
       return data;
     }
@@ -990,9 +990,41 @@
       const res = await this.fetch(`${this.apiUrl}${this.apiPrefix}/audit-logs/verify`, {
         method: "POST"
       });
-      const data = await res.json();
+      const data = await this._safeJson(res);
       if (!res.ok) throw new Error(data.message || data.error || "Failed to verify audit trail");
       return data;
+    }
+
+    async _safeJson(res) {
+      if (typeof res.text === "function") {
+        const text = await res.text();
+        if (!text || !text.trim()) {
+          return {};
+        }
+        try {
+          return JSON.parse(text);
+        } catch (err) {
+          if (!res.ok) {
+            const raw = text.trim();
+            const message = raw.length > 200 ? raw.slice(0, 200) + "..." : raw;
+            const fallback = message || `HTTP ${res.status}${res.statusText ? " " + res.statusText : ""}`;
+            return { error: fallback, message: fallback };
+          }
+          throw err;
+        }
+      }
+      if (typeof res.json === "function") {
+        try {
+          return await res.json();
+        } catch (err) {
+          if (!res.ok) {
+            const fallback = `HTTP ${res.status}${res.statusText ? " " + res.statusText : ""}`;
+            return { error: fallback, message: fallback };
+          }
+          throw err;
+        }
+      }
+      return {};
     }
 
     _rawFetch(url, options) {

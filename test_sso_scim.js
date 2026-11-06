@@ -802,7 +802,7 @@ async function runSsoScimTests() {
 }
 
 if (require.main === module) {
-  runSsoScimTests().then(() => process.exit(0)).catch((err) => {
+  runSsoScimTests().catch((err) => {
     console.error("Test failure:", err);
     process.exit(1);
   });

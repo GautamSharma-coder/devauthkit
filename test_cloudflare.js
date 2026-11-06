@@ -28,6 +28,7 @@ const { CloudflareD1CounterStore } = require("./server/stores/cloudflareD1Counte
 const { CloudflareD1PasskeyStore } = require("./server/stores/cloudflareD1PasskeyStore");
 const { CloudflareD1DpopReplayStore } = require("./server/stores/cloudflareD1DpopReplayStore");
 const { createAuthRouter } = require("./server/hono");
+const { DevAuthClient } = require("./client");
 
 async function run() {
   const nodeMajor = parseInt(process.versions.node.split('.')[0], 10);
@@ -238,6 +239,38 @@ async function run() {
     assert.match(verifyOtp.headers.get("set-cookie"), /devauth_token=/);
     assert.match(verifyOtp.headers.get("set-cookie"), /devauth_token_refresh=/);
 
+    // Verify /auth/login and /auth/verify aliases and DevAuthClient integration
+    const aliasLoginRes = await app.request("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "alias@example.com" })
+    });
+    assert.equal(aliasLoginRes.status, 200, "Hono router supports /auth/login alias");
+    const aliasOtp = sentOtp;
+
+    const aliasVerifyRes = await app.request("/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "alias@example.com", otp: aliasOtp })
+    });
+    assert.equal(aliasVerifyRes.status, 200, "Hono router supports /auth/verify alias");
+
+    // Verify DevAuthClient SDK works seamlessly with Hono endpoints
+    const honoSdkClient = new DevAuthClient({
+      apiUrl: "https://worker.test",
+      customFetch: async (url, opts) => {
+        const u = new URL(url);
+        return app.request(u.pathname, opts);
+      }
+    });
+    const sdkOtpResult = await honoSdkClient.sendOTP("sdk-hono@example.com");
+    assert.ok(sdkOtpResult.message, "OTP request message returned");
+    assert.match(sentOtp, /^\d{6}$/);
+
+    const sdkVerifyResult = await honoSdkClient.verifyOTP("sdk-hono@example.com", sentOtp);
+    assert.equal(honoSdkClient.isAuthenticated(), true);
+    assert.equal(sdkVerifyResult.user.email, "sdk-hono@example.com");
+
     const registrationOptionsResponse = await app.request("/auth/passkeys/register/options", {
       method: "POST",
       headers: {
@@ -384,8 +417,12 @@ async function run() {
 
     console.log("Cloudflare KV, D1, and Hono integration tests passed.");
   } finally {
-    await miniflare.dispose();
+    try {
+      await miniflare.dispose();
+    } catch {}
+    // Allow libuv on Windows to cleanly drain closing async handles before exit
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 }
 
-run().then(() => process.exit(0)).catch((err) => { console.error(err); process.exit(1); });
+run().catch((err) => { console.error(err); process.exit(1); });

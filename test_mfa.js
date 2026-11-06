@@ -82,8 +82,11 @@ async function run() {
     assert.deepEqual(await disableResponse.json(), { enabled: false });
     console.log("MFA enrollment, TOTP, recovery-code and step-up tests passed.");
   } finally {
+    if (typeof server.closeAllConnections === "function") {
+      server.closeAllConnections();
+    }
     await new Promise((resolve) => server.close(resolve));
   }
 }
 
-run().then(() => process.exit(0)).catch((err) => { console.error(err); process.exit(1); });
+run().catch((err) => { console.error(err); process.exit(1); });

@@ -394,6 +394,9 @@ async function run() {
   assert(verifyAuditRes.status === 200 && verifyAuditRes.data.valid === true, "POST /auth/audit-logs/verify cryptographically confirms audit trail integrity");
 
   // Clean up
+  if (typeof server.closeAllConnections === "function") {
+    server.closeAllConnections();
+  }
   server.close();
 
   // ==========================================
