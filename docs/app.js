@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initQuickSearch();
   initSandbox();
   initLandingAnimations();
+  initGitHubStars();
 });
 
 /* ==========================================================================
@@ -69,11 +70,11 @@ function initClipboardButtons() {
       try {
         await navigator.clipboard.writeText(textToCopy);
         const originalContent = btn.innerHTML;
-        btn.innerHTML = `✓ Copied!`;
-        btn.style.color = "#ffffff";
+        btn.classList.add("copied");
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:4px; vertical-align:-1px;"><polyline points="20 6 9 17 4 12"/></svg>Copied!`;
         setTimeout(() => {
           btn.innerHTML = originalContent;
-          btn.style.color = "";
+          btn.classList.remove("copied");
         }, 2000);
       } catch (err) {
         console.error("Failed to copy text:", err);
@@ -87,11 +88,11 @@ function initClipboardButtons() {
       if (!codeBlock) return;
       try {
         await navigator.clipboard.writeText(codeBlock.innerText);
-        const originalText = btn.innerText;
-        btn.innerText = "✓ Copied!";
-        btn.style.color = "#ffffff";
+        const originalText = btn.innerHTML;
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:4px; vertical-align:-1px;"><polyline points="20 6 9 17 4 12"/></svg>Copied!`;
+        btn.style.color = "#34d399";
         setTimeout(() => {
-          btn.innerText = originalText;
+          btn.innerHTML = originalText;
           btn.style.color = "";
         }, 2000);
       } catch (err) {
@@ -163,21 +164,62 @@ function initScrollSpy() {
    4. Mobile Menu Toggle
    ========================================================================== */
 function initMobileMenu() {
+  // 1. Documentation Sidebar (docs.html)
   const menuBtn = document.getElementById("mobileMenuBtn");
   const sidebar = document.getElementById("docsSidebar");
 
-  if (!menuBtn || !sidebar) return;
-
-  menuBtn.addEventListener("click", () => {
-    sidebar.classList.toggle("open");
-  });
-
-  // Close sidebar on link click
-  sidebar.querySelectorAll(".sidebar-link").forEach((link) => {
-    link.addEventListener("click", () => {
-      sidebar.classList.remove("open");
+  if (menuBtn && sidebar) {
+    menuBtn.addEventListener("click", () => {
+      sidebar.classList.toggle("open");
     });
-  });
+
+    sidebar.querySelectorAll(".sidebar-link").forEach((link) => {
+      link.addEventListener("click", () => {
+        sidebar.classList.remove("open");
+      });
+    });
+  }
+
+  // 2. Landing Page Navigation Drawer (index.html)
+  const landingMenuBtn = document.getElementById("landingMobileMenuBtn");
+  const landingNav = document.getElementById("landingMobileNav");
+
+  if (landingMenuBtn && landingNav) {
+    landingMenuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = landingNav.classList.toggle("open");
+      landingMenuBtn.classList.toggle("active", isOpen);
+      landingMenuBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      document.body.classList.toggle("menu-locked", isOpen);
+    });
+
+    landingNav.querySelectorAll("a").forEach((link) => {
+      link.addEventListener("click", () => {
+        landingNav.classList.remove("open");
+        landingMenuBtn.classList.remove("active");
+        landingMenuBtn.setAttribute("aria-expanded", "false");
+        document.body.classList.remove("menu-locked");
+      });
+    });
+
+    document.addEventListener("click", (e) => {
+      if (landingNav.classList.contains("open") && !landingNav.contains(e.target) && !landingMenuBtn.contains(e.target)) {
+        landingNav.classList.remove("open");
+        landingMenuBtn.classList.remove("active");
+        landingMenuBtn.setAttribute("aria-expanded", "false");
+        document.body.classList.remove("menu-locked");
+      }
+    });
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && landingNav.classList.contains("open")) {
+        landingNav.classList.remove("open");
+        landingMenuBtn.classList.remove("active");
+        landingMenuBtn.setAttribute("aria-expanded", "false");
+        document.body.classList.remove("menu-locked");
+      }
+    });
+  }
 }
 
 /* ==========================================================================
@@ -415,4 +457,68 @@ function base64UrlEncode(uint8Array) {
     binary += String.fromCharCode(uint8Array[i]);
   }
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/* ==========================================================================
+   7. Live GitHub Star Counter
+   ========================================================================== */
+function initGitHubStars() {
+  const repo = "GautamSharma-coder/devauthkit";
+  const starEls = document.querySelectorAll("[data-gh-stars]");
+  if (!starEls.length) return;
+
+  const cacheKey = "dak_gh_stars";
+  const cacheTimeKey = "dak_gh_stars_time";
+  const cached = localStorage.getItem(cacheKey);
+  const cachedTime = localStorage.getItem(cacheTimeKey);
+  const now = Date.now();
+
+  const renderStars = (count) => {
+    const formatted = formatStarCount(count);
+    starEls.forEach((el) => {
+      el.textContent = formatted;
+    });
+  };
+
+  // Render immediately from cache if available
+  if (cached) {
+    renderStars(cached);
+  }
+
+  // If cached within the last 15 minutes, skip re-fetching
+  if (cached && cachedTime && (now - parseInt(cachedTime, 10)) < 15 * 60 * 1000) {
+    return;
+  }
+
+  // Fetch live stars count from GitHub REST API
+  fetch(`https://api.github.com/repos/${repo}`, {
+    headers: { Accept: "application/vnd.github.v3+json" }
+  })
+    .then((res) => {
+      if (!res.ok) throw new Error("GitHub API response not ok");
+      return res.json();
+    })
+    .then((data) => {
+      if (typeof data.stargazers_count === "number") {
+        renderStars(data.stargazers_count);
+        try {
+          localStorage.setItem(cacheKey, data.stargazers_count.toString());
+          localStorage.setItem(cacheTimeKey, now.toString());
+        } catch (_) {}
+      }
+    })
+    .catch(() => {
+      // If network fails or rate limited, keep cached value
+      if (cached) {
+        renderStars(cached);
+      }
+    });
+}
+
+function formatStarCount(num) {
+  const n = parseInt(num, 10);
+  if (isNaN(n)) return num;
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+  return n.toLocaleString();
 }

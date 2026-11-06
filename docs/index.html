@@ -18,10 +18,12 @@
   <meta property="og:image" content="logo.png" />
 
   <link rel="icon" type="image/png" href="logo.png" />
+  <meta name="theme-color" content="#07090e" />
 
-  <!-- Modern Typography Preconnect -->
+  <!-- Modern Typography Preconnect & Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 
@@ -33,7 +35,7 @@
       <a href="index.html" class="brand-link">
         <img src="logo.png" alt="DevAuthKit Logo" class="brand-logo" />
         <span>DevAuthKit</span>
-        <span class="version-badge">v1.9.0</span>
+        <span class="version-badge">v1.10.3</span>
       </a>
     </div>
 
@@ -43,8 +45,7 @@
         <li><a href="#sandbox" class="landing-nav-link">Live Sandbox</a></li>
         <li><a href="#code" class="landing-nav-link">Quickstart</a></li>
         <li><a href="#comparison" class="landing-nav-link">Comparison</a></li>
-        <li><a href="docs.html" class="landing-nav-link" style="color: var(--text-white); font-weight: 600;">Docs ↗</a>
-        </li>
+        <li><a href="docs.html" class="landing-nav-link" style="color: #38bdf8; font-weight: 600;">Docs ↗</a></li>
       </ul>
     </div>
 
@@ -57,11 +58,52 @@
         <span>npm</span>
       </a>
       <a href="https://github.com/GautamSharma-coder/devauthkit" target="_blank" rel="noopener noreferrer"
-        class="nav-btn nav-btn-ghost">
+        class="nav-btn nav-btn-github" aria-label="DevAuthKit on GitHub">
+        <svg class="gh-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+        </svg>
         <span>GitHub</span>
+        <span class="gh-star-pill">
+          <svg class="star-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+          <span class="gh-star-count" data-gh-stars>★</span>
+        </span>
       </a>
+      <button class="landing-mobile-menu-btn" id="landingMobileMenuBtn" aria-label="Toggle navigation menu" aria-expanded="false">
+        <span class="hamburger-bar"></span>
+        <span class="hamburger-bar"></span>
+        <span class="hamburger-bar"></span>
+      </button>
     </div>
   </header>
+
+  <!-- Mobile Navigation Drawer -->
+  <nav class="landing-mobile-drawer" id="landingMobileNav" aria-label="Mobile Navigation">
+    <div class="mobile-drawer-inner">
+      <ul class="mobile-drawer-links">
+        <li><a href="#features" class="mobile-drawer-link"><span>Features</span><span>→</span></a></li>
+        <li><a href="#sandbox" class="mobile-drawer-link"><span>Live Sandbox</span><span>→</span></a></li>
+        <li><a href="#code" class="mobile-drawer-link"><span>Quickstart</span><span>→</span></a></li>
+        <li><a href="#comparison" class="mobile-drawer-link"><span>Comparison</span><span>→</span></a></li>
+        <li><a href="docs.html" class="mobile-drawer-link highlight-link"><span>Documentation</span><span>↗</span></a></li>
+      </ul>
+      <div class="mobile-drawer-actions">
+        <a href="docs.html" class="nav-btn nav-btn-primary mobile-cta-btn">Start Building Free →</a>
+        <div class="mobile-drawer-socials">
+          <a href="https://www.npmjs.com/package/devauthkit" target="_blank" rel="noopener noreferrer" class="nav-btn nav-btn-ghost">npm</a>
+          <a href="https://github.com/GautamSharma-coder/devauthkit" target="_blank" rel="noopener noreferrer" class="nav-btn nav-btn-github mobile-gh-btn">
+            <svg class="gh-icon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+            <span>GitHub</span>
+            <span class="gh-star-pill">
+              <svg class="star-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              <span class="gh-star-count" data-gh-stars>★</span>
+            </span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </nav>
 
   <!-- Main Landing Container -->
   <main class="landing-main">
@@ -69,10 +111,10 @@
     <!-- Hero Section -->
     <section class="landing-hero">
       <div class="hero-pill-badge">
-        <span class="live-indicator" style="display:inline-block; margin-right: 4px;"></span>
-        <span>DevAuthKit v1.9.0 Released</span>
-        <span>•</span>
-        <span>Enterprise SSO (SAML 2.0) &amp; SCIM 2.0 Ready</span>
+        <span class="live-indicator"></span>
+        <span class="badge-text-primary">DevAuthKit v1.10.3 Released</span>
+        <span class="badge-divider">•</span>
+        <span class="badge-text-secondary">Enterprise SSO (SAML 2.0) &amp; SCIM 2.0 Ready</span>
       </div>
 
       <h1 class="landing-headline">
@@ -88,13 +130,29 @@
 
       <div class="landing-hero-actions">
         <div class="quick-install-box">
-          <span>npm install devauthkit</span>
-          <button class="copy-install-btn" data-copy="npm install devauthkit">Copy</button>
+          <span class="install-prompt">$</span>
+          <span class="install-cmd">npm install devauthkit</span>
+          <button class="copy-install-btn" data-copy="npm install devauthkit" aria-label="Copy install command">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span>Copy</span>
+          </button>
         </div>
-        <a href="docs.html" class="nav-btn nav-btn-primary" style="padding: 9px 18px; font-size: 0.88rem;">
+        <a href="docs.html" class="nav-btn nav-btn-primary">
           Start Building Free →
         </a>
-        <a href="#sandbox" class="nav-btn nav-btn-ghost" style="padding: 9px 18px; font-size: 0.88rem;">
+        <a href="https://github.com/GautamSharma-coder/devauthkit" target="_blank" rel="noopener noreferrer" class="nav-btn nav-btn-github hero-star-btn">
+          <svg class="gh-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <span>Star on GitHub</span>
+          <span class="gh-star-pill">
+            <svg class="star-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+            <span class="gh-star-count" data-gh-stars>★</span>
+          </span>
+        </a>
+        <a href="#sandbox" class="nav-btn nav-btn-ghost">
           Try Interactive Sandbox
         </a>
       </div>
@@ -115,7 +173,7 @@
         </div>
         <div class="stat-card">
           <div class="stat-value">100%</div>
-          <div class="stat-label">TypeScript & Edge Runtimes</div>
+          <div class="stat-label">TypeScript &amp; Edge Runtimes</div>
         </div>
       </div>
     </section>
@@ -136,12 +194,15 @@
       <div class="sandbox-card">
         <div class="sandbox-tabs">
           <button class="sandbox-tab-btn active" data-sandbox-target="view-otp">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
             <span>Passwordless OTP</span>
           </button>
           <button class="sandbox-tab-btn" data-sandbox-target="view-dpop">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <span>RFC 9449 DPoP Binding</span>
           </button>
           <button class="sandbox-tab-btn" data-sandbox-target="view-passkey">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
             <span>WebAuthn Passkey</span>
           </button>
         </div>
@@ -156,14 +217,16 @@
                   placeholder="Enter your email" />
               </div>
               <button class="sim-btn sim-btn-primary" id="simSendOtpBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                 <span>1. Dispatch OTP Code</span>
               </button>
-              <div class="form-group" style="margin-top: 10px;">
+              <div class="form-group" style="margin-top: 6px;">
                 <label class="form-label" for="simOtpCode">6-Digit Code</label>
                 <input type="text" id="simOtpCode" class="form-input" placeholder="Awaiting OTP..." maxlength="6" />
               </div>
               <button class="sim-btn sim-btn-secondary" id="simVerifyOtpBtn">
-                <span>2. Verify OTP & Issue Token</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <span>2. Verify OTP &amp; Issue Token</span>
               </button>
             </div>
 
@@ -183,13 +246,14 @@
         <div class="sandbox-view" id="view-dpop">
           <div class="sandbox-grid">
             <div class="simulator-form">
-              <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 14px; line-height: 1.5;">
+              <p style="font-size: 0.88rem; color: #94a3b8; margin-bottom: 14px; line-height: 1.6;">
                 Generates an ECDSA P-256 keypair in your browser's <code>window.crypto.subtle</code> memory, computes
                 the RFC 7638 SHA-256 thumbprint (<code>cnf.jkt</code>), and binds your access token directly to this
                 device.
               </p>
               <button class="sim-btn sim-btn-primary" id="simDpopGenBtn">
-                <span>Generate P-256 Key & Compute Binding</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <span>Generate P-256 Key &amp; Compute Binding</span>
               </button>
               <div class="callout" style="margin-top: 14px; padding: 12px 14px;">
                 <div class="callout-content" style="font-size: 0.82rem;">
@@ -215,11 +279,12 @@
         <div class="sandbox-view" id="view-passkey">
           <div class="sandbox-grid">
             <div class="simulator-form">
-              <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 14px; line-height: 1.5;">
+              <p style="font-size: 0.88rem; color: #94a3b8; margin-bottom: 14px; line-height: 1.6;">
                 DevAuthKit integrates native WebAuthn support via <code>@simplewebauthn/server</code> and durable
                 Cloudflare D1 storage for Touch ID, Face ID, and Windows Hello.
               </p>
               <button class="sim-btn sim-btn-primary" id="simPasskeyTestBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
                 <span>Detect Platform Authenticator</span>
               </button>
             </div>
@@ -254,7 +319,12 @@
 
         <!-- Bento Card 1: DPoP (Span 2) -->
         <div class="bento-card bento-span-2">
-          <div class="bento-num">01 / REVOLUTIONARY SECURITY</div>
+          <div class="bento-card-header">
+            <div class="bento-icon-badge bento-icon-shield">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+            </div>
+            <div class="bento-num">01 / REVOLUTIONARY SECURITY</div>
+          </div>
           <h3 class="bento-title">RFC 9449 DPoP Token Theft Defense</h3>
           <p class="bento-desc">
             Standard Bearer tokens can be extracted via infostealer malware, malicious browser extensions, or proxy
@@ -274,7 +344,12 @@
 
         <!-- Bento Card 2: Passkeys -->
         <div class="bento-card">
-          <div class="bento-num">02 / BIOMETRICS</div>
+          <div class="bento-card-header">
+            <div class="bento-icon-badge bento-icon-key">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            </div>
+            <div class="bento-num">02 / BIOMETRICS</div>
+          </div>
           <h3 class="bento-title">WebAuthn Passkeys</h3>
           <p class="bento-desc">
             Provide instant 1-touch passwordless login with Touch ID, Face ID, Windows Hello, and YubiKeys. Native
@@ -290,7 +365,12 @@
 
         <!-- Bento Card 3: Multi-Runtime -->
         <div class="bento-card">
-          <div class="bento-num">03 / MULTI-RUNTIME</div>
+          <div class="bento-card-header">
+            <div class="bento-icon-badge bento-icon-cloud">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><polyline points="13 11 11 15 14 15 12 19"/></svg>
+            </div>
+            <div class="bento-num">03 / MULTI-RUNTIME</div>
+          </div>
           <h3 class="bento-title">Node &amp; Cloudflare Edge</h3>
           <p class="bento-desc">
             Run on traditional Express.js servers or deploy globally to Cloudflare Workers, Hono, and Bun with native
@@ -304,7 +384,12 @@
 
         <!-- Bento Card 4: Refresh Tokens (Span 2) -->
         <div class="bento-card bento-span-2">
-          <div class="bento-num">04 / SESSION SECURITY</div>
+          <div class="bento-card-header">
+            <div class="bento-icon-badge bento-icon-refresh">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </div>
+            <div class="bento-num">04 / SESSION SECURITY</div>
+          </div>
           <h3 class="bento-title">Rotating Refresh Tokens &amp; Replay Defense</h3>
           <p class="bento-desc">
             Short-lived 15-minute access tokens paired with rotating 30-day httpOnly cookies. Includes automatic token
@@ -320,7 +405,12 @@
 
         <!-- Bento Card 5: Databases -->
         <div class="bento-card">
-          <div class="bento-num">05 / DATA SOVEREIGNTY</div>
+          <div class="bento-card-header">
+            <div class="bento-icon-badge bento-icon-database">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            </div>
+            <div class="bento-num">05 / DATA SOVEREIGNTY</div>
+          </div>
           <h3 class="bento-title">Database Freedom</h3>
           <p class="bento-desc">
             First-class adapters for Prisma, Drizzle ORM, Mongoose (MongoDB), and Cloudflare D1. Zero vendor database
@@ -333,7 +423,12 @@
 
         <!-- Bento Card 6: Enterprise SSO & SCIM (Span 2) -->
         <div class="bento-card bento-span-2">
-          <div class="bento-num">06 / ENTERPRISE FEDERATION</div>
+          <div class="bento-card-header">
+            <div class="bento-icon-badge bento-icon-enterprise">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M6 18V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v14"/><path d="M9 8h2"/><path d="M9 12h2"/><path d="M9 16h2"/><path d="M13 8h2"/><path d="M13 12h2"/><path d="M13 16h2"/></svg>
+            </div>
+            <div class="bento-num">06 / ENTERPRISE FEDERATION</div>
+          </div>
           <h3 class="bento-title">Enterprise SSO (SAML 2.0) &amp; SCIM 2.0 Sync</h3>
           <p class="bento-desc">
             Zero-fee, self-hosted alternative to WorkOS ($125/conn/mo) and Auth0 Enterprise ($800+/mo). Pure-JS C14N XML
@@ -378,7 +473,10 @@
               <button class="code-tab" data-tab="react">App.jsx (React Client)</button>
             </div>
           </div>
-          <button class="code-copy-btn">Copy</button>
+          <button class="code-copy-btn" aria-label="Copy code">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span>Copy</span>
+          </button>
         </div>
 
         <!-- Express Code Block -->
@@ -473,7 +571,7 @@ app.<span class="tok-fn">listen</span>(<span class="tok-val">3000</span>, () => 
           <thead>
             <tr>
               <th>Capability</th>
-              <th class="highlight-col">DevAuthKit</th>
+              <th class="highlight-col">DevAuthKit <span class="version-badge" style="font-size:0.68rem; margin-left:4px; padding:1px 6px;">v1.10.3</span></th>
               <th>Clerk / Auth0</th>
               <th>NextAuth / Auth.js</th>
               <th>Passport.js</th>
@@ -482,52 +580,52 @@ app.<span class="tok-fn">listen</span>(<span class="tok-val">3000</span>, () => 
           <tbody>
             <tr>
               <td><strong>Pricing Model</strong></td>
-              <td class="highlight-col"><span class="check-pill">100% Free / Self-Hosted</span></td>
-              <td><span class="cross-pill">MAU Tiers ($$$)</span></td>
-              <td><span class="check-pill">Free</span></td>
-              <td><span class="check-pill">Free</span></td>
+              <td class="highlight-col"><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> 100% Free / Self-Hosted</span></td>
+              <td><span class="cross-pill"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> MAU Tiers ($$$)</span></td>
+              <td><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Free</span></td>
+              <td><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Free</span></td>
             </tr>
             <tr>
               <td><strong>Setup Overhead</strong></td>
-              <td class="highlight-col"><span class="check-pill">&lt; 3 minutes</span></td>
-              <td>5 minutes</td>
-              <td>30+ minutes</td>
-              <td>2+ hours</td>
+              <td class="highlight-col"><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> &lt; 3 minutes</span></td>
+              <td><span class="cross-pill" style="color:#94a3b8; background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.1);">5 minutes</span></td>
+              <td><span class="cross-pill" style="color:#94a3b8; background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.1);">30+ minutes</span></td>
+              <td><span class="cross-pill"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 2+ hours</span></td>
             </tr>
             <tr>
               <td><strong>RFC 9449 DPoP</strong></td>
-              <td class="highlight-col"><span class="check-pill">✓ Built-in</span></td>
-              <td><span class="cross-pill">—</span></td>
-              <td><span class="cross-pill">—</span></td>
-              <td><span class="cross-pill">—</span></td>
+              <td class="highlight-col"><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Built-in</span></td>
+              <td><span class="cross-pill" style="color:#64748b; background:transparent; border:none;">—</span></td>
+              <td><span class="cross-pill" style="color:#64748b; background:transparent; border:none;">—</span></td>
+              <td><span class="cross-pill" style="color:#64748b; background:transparent; border:none;">—</span></td>
             </tr>
             <tr>
               <td><strong>Biometric Passkeys</strong></td>
-              <td class="highlight-col"><span class="check-pill">✓ Native WebAuthn</span></td>
-              <td><span class="check-pill">✓ Cloud Hosted</span></td>
-              <td>Manual Config</td>
-              <td><span class="cross-pill">—</span></td>
+              <td class="highlight-col"><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Native WebAuthn</span></td>
+              <td><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Cloud Hosted</span></td>
+              <td><span class="cross-pill" style="color:#94a3b8; background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.1);">Manual Config</span></td>
+              <td><span class="cross-pill" style="color:#64748b; background:transparent; border:none;">—</span></td>
             </tr>
             <tr>
               <td><strong>Cloudflare Edge</strong></td>
-              <td class="highlight-col"><span class="check-pill">✓ D1 & KV Native</span></td>
-              <td><span class="cross-pill">—</span></td>
-              <td>Partial</td>
-              <td><span class="cross-pill">—</span></td>
+              <td class="highlight-col"><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> D1 &amp; KV Native</span></td>
+              <td><span class="cross-pill" style="color:#64748b; background:transparent; border:none;">—</span></td>
+              <td><span class="cross-pill" style="color:#94a3b8; background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.1);">Partial</span></td>
+              <td><span class="cross-pill" style="color:#64748b; background:transparent; border:none;">—</span></td>
             </tr>
             <tr>
               <td><strong>Database Adapters</strong></td>
-              <td class="highlight-col"><span class="check-pill">Prisma, Drizzle, Mongo</span></td>
-              <td>Vendor Locked</td>
-              <td>Prisma, Drizzle</td>
-              <td>Manual Glue</td>
+              <td class="highlight-col"><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Prisma, Drizzle, Mongo</span></td>
+              <td><span class="cross-pill"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Vendor Locked</span></td>
+              <td><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Prisma, Drizzle</span></td>
+              <td><span class="cross-pill" style="color:#94a3b8; background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.1);">Manual Glue</span></td>
             </tr>
             <tr>
               <td><strong>Zero-Config Dev Mode</strong></td>
-              <td class="highlight-col"><span class="check-pill">✓ Terminal OTP</span></td>
-              <td><span class="cross-pill">—</span></td>
-              <td><span class="cross-pill">—</span></td>
-              <td><span class="cross-pill">—</span></td>
+              <td class="highlight-col"><span class="check-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Terminal OTP</span></td>
+              <td><span class="cross-pill" style="color:#64748b; background:transparent; border:none;">—</span></td>
+              <td><span class="cross-pill" style="color:#64748b; background:transparent; border:none;">—</span></td>
+              <td><span class="cross-pill" style="color:#64748b; background:transparent; border:none;">—</span></td>
             </tr>
           </tbody>
         </table>
@@ -545,10 +643,14 @@ app.<span class="tok-fn">listen</span>(<span class="tok-val">3000</span>, () => 
 
       <div class="landing-hero-actions">
         <div class="quick-install-box">
-          <span>npm install devauthkit</span>
-          <button class="copy-install-btn" data-copy="npm install devauthkit">Copy</button>
+          <span class="install-prompt">$</span>
+          <span class="install-cmd">npm install devauthkit</span>
+          <button class="copy-install-btn" data-copy="npm install devauthkit" aria-label="Copy install command">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span>Copy</span>
+          </button>
         </div>
-        <a href="docs.html" class="nav-btn nav-btn-primary" style="padding: 9px 20px; font-size: 0.9rem;">
+        <a href="docs.html" class="nav-btn nav-btn-primary">
           Read Complete Documentation →
         </a>
       </div>
@@ -560,7 +662,7 @@ app.<span class="tok-fn">listen</span>(<span class="tok-val">3000</span>, () => 
   <footer class="site-footer">
     <ul class="footer-links">
       <li><a href="docs.html" class="footer-link">Documentation</a></li>
-      <li><a href="https://github.com/GautamSharma-coder/devauthkit" class="footer-link">GitHub</a></li>
+      <li><a href="https://github.com/GautamSharma-coder/devauthkit" target="_blank" rel="noopener noreferrer" class="footer-link">GitHub <span class="gh-star-pill" style="font-size:0.68rem; padding:1px 6px; margin-left:3px;"><svg class="star-icon" width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> <span data-gh-stars>★</span></span></a></li>
       <li><a href="https://www.npmjs.com/package/devauthkit" class="footer-link">npm</a></li>
       <li><a href="#sandbox" class="footer-link">Live Sandbox</a></li>
       <li><a href="https://github.com/GautamSharma-coder/devauthkit/blob/main/LICENSE" class="footer-link">MIT
