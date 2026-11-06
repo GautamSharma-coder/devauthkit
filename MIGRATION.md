@@ -1,0 +1,1197 @@
+# 🔄 DevAuthKit — The Definitive Migration Guide
+## Zero-Downtime Upgrades, Schema Evolution & Zero-Fee Vendor Migration
+
+<p align="center">
+  <img src="logo.png" alt="DevAuthKit Logo" width="280" />
+</p>
+
+<p align="center">
+  <strong>Transition effortlessly to self-hosted, sovereign, enterprise-grade authentication.</strong><br/>
+  Zero vendor lock-in. $0 monthly identity tax. Complete data custody.
+</p>
+
+---
+
+## 📑 Table of Contents
+
+1. [Executive Summary & Migration Principles](#1-executive-summary--migration-principles)
+2. [DevAuthKit Version Upgrade Matrix (v1.0 → v2.0)](#2-devauthkit-version-upgrade-matrix-v10--v20)
+   - [2.1 Upgrading from v1.0–v1.3 to v1.4+ (Refresh Tokens & Rotation)](#21-upgrading-from-v10v13-to-v14-refresh-tokens--rotation)
+   - [2.2 Upgrading from v1.4 to v1.8+ (DPoP RFC 9449, Passkeys & TOTP MFA)](#22-upgrading-from-v14-to-v18-dpop-rfc-9449-passkeys--totp-mfa)
+   - [2.3 Upgrading from v1.8 to v1.9+ (Organizations, Webhooks & Enterprise SSO/SCIM)](#23-upgrading-from-v18-to-v19-organizations-webhooks--enterprise-ssoscim)
+   - [2.4 Upgrading from v1.9 to v1.10+ / v2.0 (Audit Trails, API Keys, Sessions & Impersonation)](#24-upgrading-from-v19-to-v110--v20-audit-trails-api-keys-sessions--impersonation)
+   - [2.5 Breaking Changes & Deprecations History](#25-breaking-changes--deprecations-history)
+3. [Database Schema Migrations & DDL Specifications](#3-database-schema-migrations--ddl-specifications)
+   - [3.1 Prisma Schema & Migrations](#31-prisma-schema--migrations)
+   - [3.2 Drizzle ORM Schema (PostgreSQL & SQLite)](#32-drizzle-orm-schema-postgresql--sqlite)
+   - [3.3 Cloudflare D1 SQL Schema (`schema.d1.sql`)](#33-cloudflare-d1-sql-schema-schemad1sql)
+   - [3.4 Raw PostgreSQL DDL Schema](#34-raw-postgresql-ddl-schema)
+4. [Migrating from External Authentication Providers](#4-migrating-from-external-authentication-providers)
+   - [4.1 Migrating from Clerk to DevAuthKit (Zero MAU Fees)](#41-migrating-from-clerk-to-devauthkit-zero-mau-fees)
+   - [4.2 Migrating from Auth0 / Okta to DevAuthKit (Escape the $800+/mo Enterprise Trap)](#42-migrating-from-auth0--okta-to-devauthkit-escape-the-800mo-enterprise-trap)
+   - [4.3 Migrating from NextAuth.js / Auth.js to DevAuthKit (Deterministic Simplicity)](#43-migrating-from-nextauthjs--authjs-to-devauthkit-deterministic-simplicity)
+   - [4.4 Migrating from WorkOS to DevAuthKit (Save $125/connection/mo on SSO & SCIM)](#44-migrating-from-workos-to-devauthkit-save-125connectionmo-on-sso--scim)
+   - [4.5 Migrating from Passport.js / Custom Express Sessions to DevAuthKit](#45-migrating-from-passportjs--custom-express-sessions-to-devauthkit)
+5. [Frontend & Client SDK Migration](#5-frontend--client-sdk-migration)
+   - [5.1 Initializing `DevAuthClient`](#51-initializing-devauthclient)
+   - [5.2 Replacing Ad-Hoc Fetch & Token Management](#52-replacing-ad-hoc-fetch--token-management)
+   - [5.3 Reactive State with `onAuthStateChanged`](#53-reactive-state-with-onauthstatechanged)
+   - [5.4 React Hooks & Context Integration](#54-react-hooks--context-integration)
+6. [Zero-Downtime Deployment & Cutover Strategy](#6-zero-downtime-deployment--cutover-strategy)
+   - [6.1 Dual-Write & Shadow Verification](#61-dual-write--shadow-verification)
+   - [6.2 Password Hash Migration (Lazy Re-Hashing vs. OTP Transition)](#62-password-hash-migration-lazy-re-hashing-vs-otp-transition)
+   - [6.3 Phased Cutover Checklist](#63-phased-cutover-checklist)
+7. [Troubleshooting & Common Pitfalls](#7-troubleshooting--common-pitfalls)
+
+---
+
+## 🎯 1. Executive Summary & Migration Principles
+
+Modern engineering teams spend thousands of dollars every month on authentication SaaS platforms (Clerk, Auth0, WorkOS) that hold user identities hostage, enforce predatory pricing tiers, and inject network latency into the critical request path.
+
+**DevAuthKit** delivers an enterprise-grade, zero-dependency, self-hosted authentication suite for Express, Hono, and Cloudflare Workers. 
+
+When planning your migration, DevAuthKit adheres to four core guarantees:
+1. **Zero Downtime:** Schema extensions are backward-compatible. New database columns supply safe default values (`revocation_epoch = 1`, `status = 'active'`).
+2. **Data Sovereignty:** All user credentials, sessions, audit records, and cryptographic keys reside entirely in your VPC, SQLite/D1 database, or PostgreSQL instance.
+3. **Isomorphic Runtime Portability:** Run identical business logic on Node.js (18+), Cloudflare Workers, Vercel Edge, AWS Lambda, Deno, or Bun without binary C++ addons.
+4. **Gradual Adoption:** You can run DevAuthKit in parallel with your existing auth provider, migrating traffic endpoint by endpoint or tenant by tenant.
+
+---
+
+## 🚀 2. DevAuthKit Version Upgrade Matrix (v1.0 → v2.0)
+
+| Release Track | Key Architectural Capabilities Added | Breaking Changes | Migration Difficulty |
+| :--- | :--- | :--- | :---: |
+| **v1.0.x → v1.3.x** | Passwordless Email OTP, Magic Links, JWT Bearer tokens, `httpOnly` cookies, Resend email provider, Prisma adapter, Google OAuth PKCE. | None. Additive features. | 🟢 Trivial |
+| **v1.4.x → v1.5.x** | Rotating refresh tokens, reuse detection family revocation, isomorphic Web Crypto API abstraction. | Insecure dev secrets rejected in production (`NODE_ENV=production`). | 🟡 Low |
+| **v1.6.x → v1.8.x** | RFC 9449 DPoP key binding, WebAuthn/Passkeys (FIDO2), TOTP 2FA + step-up `requireMfa`. | `dpopReplayStore` required when DPoP is enabled. | 🟡 Low |
+| **v1.9.0** | Multi-Tenant Organizations, Webhooks Engine (HMAC-SHA256), Enterprise SAML 2.0 SSO, SCIM 2.0 Directory Sync. | Added `/auth/orgs`, `/auth/webhooks`, `/auth/sso`, `/auth/scim` route namespaces. | 🟠 Moderate |
+| **v1.10.x → v2.0** | Merkle-chained Audit Trail (`audit_logs`), Scoped Machine API Keys (`api_keys`), Multi-Device Session Orchestrator (`sessions`), RFC 8693 User Impersonation, Monotonic Revocation Epochs. | User schema requires `status` and `revocation_epoch`. Hono route parity. | 🟠 Moderate |
+
+---
+
+### 2.1 Upgrading from v1.0–v1.3 to v1.4+ (Refresh Tokens & Rotation)
+
+In v1.4.0, DevAuthKit introduced **rotating refresh tokens** to protect against stolen access tokens while keeping session lifetimes extended securely.
+
+#### 1. Configuration Changes
+Pass a refresh token store to `devAuthKit(app, options)`:
+
+```javascript
+// BEFORE (v1.0 - v1.3)
+const devAuthKit = require("devauthkit");
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  userAdapter: prismaAdapter(prisma.user)
+});
+
+// AFTER (v1.4+)
+const devAuthKit = require("devauthkit");
+const { RedisRefreshTokenStore } = require("devauthkit");
+// or: const MemoryRefreshTokenStore = require("devauthkit/stores/memoryRefreshTokenStore");
+
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET, // Required for secure cookie signing
+  userAdapter: prismaAdapter(prisma.user),
+  refreshTokenStore: new RedisRefreshTokenStore(redisClient), // Or CloudflareD1RefreshTokenStore
+  refreshTokenCookieName: "dak_rt", // Default
+  refreshTokenTtlSeconds: 30 * 24 * 60 * 60 // 30 days
+});
+```
+
+#### 2. Client Refresh Handling
+Clients receive both an `accessToken` (short-lived, 15m) and a refresh token. The client can either let the httpOnly cookie handle rotation automatically or call:
+```javascript
+const { DevAuthClient } = require("devauthkit/client");
+const client = new DevAuthClient({ baseUrl: "/auth" });
+await client.refresh();
+```
+
+---
+
+### 2.2 Upgrading from v1.4 to v1.8+ (DPoP RFC 9449, Passkeys & TOTP MFA)
+
+v1.6–v1.8 introduced hardware-level token theft protection (DPoP) and biometric authentication.
+
+#### 1. DPoP Token Binding (RFC 9449)
+DPoP requires a replay store to prevent proof replay attacks:
+
+```javascript
+const { RedisDpopReplayStore } = require("devauthkit");
+
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET,
+  dpop: "optional", // "optional" | "enforced" | "disabled"
+  dpopReplayStore: new RedisDpopReplayStore(redisClient) // Required when dpop is enabled
+});
+```
+
+#### 2. TOTP MFA & Step-Up Auth
+Add `mfaStore` and configure issuer:
+
+```javascript
+const { MemoryMfaStore } = require("devauthkit");
+
+devAuthKit(app, {
+  // ...
+  mfaStore: new MemoryMfaStore(), // Or your custom Redis/DB MFA store
+  mfaIssuer: "MyCompany",
+  mfaStepUpExpiresInSeconds: 300 // 5 minutes step-up validity
+});
+```
+
+Protect sensitive routes with `requireMfa`:
+```javascript
+const { requireAuth, requireMfa } = require("devauthkit");
+
+app.post("/api/billing/payout", requireAuth, requireMfa, (req, res) => {
+  res.json({ success: true });
+});
+```
+
+---
+
+### 2.3 Upgrading from v1.8 to v1.9+ (Organizations, Webhooks & Enterprise SSO/SCIM)
+
+v1.9.0 added complete turnkey B2B multi-tenancy, cryptographic webhooks, SAML 2.0 / OIDC enterprise single sign-on, and automated SCIM 2.0 provisioning.
+
+#### 1. Organization & Multi-Tenancy Store
+```javascript
+const { CloudflareD1OrganizationStore, MemoryOrganizationStore } = require("devauthkit");
+
+devAuthKit(app, {
+  // ...
+  organizationStore: new MemoryOrganizationStore() // Or new CloudflareD1OrganizationStore(env.DB)
+});
+```
+
+#### 2. Cryptographic Webhooks
+```javascript
+const { MemoryWebhookStore, CloudflareD1WebhookStore } = require("devauthkit");
+
+devAuthKit(app, {
+  // ...
+  webhookStore: new MemoryWebhookStore(),
+  webhookDispatcherOptions: {
+    maxRetries: 5,
+    timeoutMs: 10000
+  }
+});
+```
+
+#### 3. Enterprise SSO & SCIM 2.0
+```javascript
+const { MemorySsoStore, CloudflareD1SsoStore } = require("devauthkit");
+
+devAuthKit(app, {
+  // ...
+  ssoStore: new MemorySsoStore(),
+  sso: {
+    spEntityId: "https://auth.mycompany.com/auth/sso/metadata",
+    spAcsUrl: "https://auth.mycompany.com/auth/sso/callback",
+    rollingCerts: [process.env.SAML_SP_CERT]
+  }
+});
+```
+
+---
+
+### 2.4 Upgrading from v1.9 to v1.10+ / v2.0 (Audit Trails, API Keys, Sessions & Impersonation)
+
+v1.10 and v2.0 introduced the Next-Gen Architecture Specification:
+1. **Merkle-Chained Audit Trail:** Non-blocking asynchronous microtask ring-buffer with SHA-256 integrity proofs.
+2. **Scoped Machine API Keys:** Prefix-routed `dak_live_` / `dak_test_` keys with sub-0.01ms CRC32 fast-path checksum rejection.
+3. **Multi-Device Session Orchestrator:** Hardware, browser, OS, and IP topology tracking with global one-click remote session revocation.
+4. **RFC 8693 Impersonation:** Secure support agent "Act As User" dual-identity JWTs with zero delegation depth.
+5. **Monotonic Revocation Epochs:** Sub-5ms instant account suspension cascade without database queries on the hot path.
+
+#### Complete v2.0 Server Configuration:
+```javascript
+const express = require("express");
+const devAuthKit = require("devauthkit");
+const { 
+  MemoryAuditLogStore, 
+  MemoryApiKeyStore, 
+  SessionService, 
+  prismaAdapter 
+} = require("devauthkit");
+
+const app = express();
+app.use(express.json());
+
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET,
+  userAdapter: prismaAdapter(prisma.user),
+
+  // v2 Audit Logging
+  audit: {
+    enabled: true,
+    store: new MemoryAuditLogStore({ maxEntries: 100000 })
+  },
+
+  // v2 Scoped Machine API Keys
+  apiKeys: {
+    enabled: true,
+    store: new MemoryApiKeyStore()
+  },
+
+  // v2 RFC 8693 User Impersonation
+  impersonation: {
+    enabled: true,
+    maxTtlSeconds: 3600 // 1 hour max session
+  },
+
+  // v2 Multi-Device Sessions
+  sessions: {
+    enabled: true,
+    maxConcurrentSessions: 10
+  }
+});
+```
+
+---
+
+### 2.5 Breaking Changes & Deprecations History
+
+| Release | Deprecated Feature / Parameter | New Replacement | Reason |
+| :--- | :--- | :--- | :--- |
+| **v1.4.0** | Insecure default secrets (`devAuthSecret`) | Strong 32-byte secret required in `production` | Prevents credential forging in production deployments. |
+| **v1.6.0** | Unrestricted Bearer tokens | DPoP Token Binding (`RFC 9449`) | Mitigates token exfiltration via malware and XSS. |
+| **v1.9.0** | Monolithic `req.user.orgId` manual lookup | `requireOrg` & `requireOrgRole` middleware | Enforces hierarchical role checks & workspace isolation. |
+| **v1.10.0**| Database polling for token revocation | Monotonic Revocation Epochs (`revocation_epoch`) | Eliminates database bottlenecks on the API hot path. |
+| **v2.0.0** | Ad-hoc API key headers (`x-api-key`) | Prefix-routed Bearer keys with CRC32 fast-path (`requireApiKey`) | Sub-millisecond validation and hierarchical wildcard scopes. |
+
+---
+
+## 💾 3. Database Schema Migrations & DDL Specifications
+
+To upgrade your existing database to support DevAuthKit v2 features (revocation epochs, multi-device sessions, machine API keys, and immutable audit logs), apply the appropriate schema updates below.
+
+---
+
+### 3.1 Prisma Schema & Migrations
+
+If you use Prisma, add the following models to your `prisma/schema.prisma`:
+
+```prisma
+// Existing User model extension
+model User {
+  id              String      @id @default(cuid())
+  email           String      @unique
+  status          String      @default("active") // "active" | "suspended" | "locked" | "archived"
+  revocationEpoch Int         @default(1)
+  role            String      @default("user")
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // v2 Relations
+  sessions        Session[]
+  apiKeys         ApiKey[]
+  memberships     OrgMember[]
+
+  @@map("users")
+}
+
+// Multi-Device Sessions
+model Session {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent       String?
+  ipAddress       String?
+  deviceType      String?
+  operatingSystem String?
+  browser         String?
+  countryCode     String?
+  sessionEpoch    Int       @default(1)
+  lastActiveAt    DateTime  @default(now())
+  expiresAt       DateTime
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// Scoped Machine API Keys
+model ApiKey {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId         String?
+  name          String
+  keyPrefix     String
+  keyDigest     String    @unique
+  crc32Checksum String
+  scopes        String
+  status        String    @default("active") // "active" | "suspended" | "revoked"
+  lastUsedAt    DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([keyDigest])
+  @@index([orgId])
+  @@map("api_keys")
+}
+
+// Immutable Audit Logs
+model AuditLog {
+  id         String    @id @default(cuid())
+  orgId      String?
+  actorId    String
+  actorType  String
+  targetId   String?
+  eventType  String
+  ipAddress  String?
+  userAgent  String?
+  prevHash   String
+  entryHash  String
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+
+  @@index([actorId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// Multi-Tenant Organizations
+model Organization {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  logoUrl     String?
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  members     OrgMember[]
+
+  @@map("organizations")
+}
+
+model OrgMember {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email     String?
+  role      String       @default("member") // "owner" | "admin" | "member" | "billing" | "viewer"
+  joinedAt  DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([orgId, userId])
+  @@map("organization_members")
+}
+```
+
+#### Run the Migration:
+```bash
+npx prisma migrate dev --name add_devauthkit_v2_features
+npx prisma generate
+```
+
+---
+
+### 3.2 Drizzle ORM Schema (PostgreSQL & SQLite)
+
+For Drizzle ORM with PostgreSQL (`drizzle-orm/pg-core`):
+
+```typescript
+import { pgTable, text, integer, timestamp, json, index } from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  status: text("status").default("active").notNull(),
+  revocationEpoch: integer("revocation_epoch").default(1).notNull(),
+  role: text("role").default("user").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull()
+});
+
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  userAgent: text("user_agent"),
+  ipAddress: text("ip_address"),
+  deviceType: text("device_type"),
+  operatingSystem: text("operating_system"),
+  browser: text("browser"),
+  countryCode: text("country_code"),
+  sessionEpoch: integer("session_epoch").default(1).notNull(),
+  lastActiveAt: timestamp("last_active_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+}, (table) => ({
+  userIdIdx: index("idx_sessions_user_id").on(table.userId),
+  expiresAtIdx: index("idx_sessions_expires_at").on(table.expiresAt)
+}));
+
+export const apiKeys = pgTable("api_keys", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  orgId: text("org_id"),
+  name: text("name").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  keyDigest: text("key_digest").notNull().unique(),
+  crc32Checksum: text("crc32_checksum").notNull(),
+  scopes: text("scopes").notNull(),
+  status: text("status").default("active").notNull(),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+}, (table) => ({
+  digestIdx: index("idx_api_keys_digest").on(table.keyDigest),
+  orgIdIdx: index("idx_api_keys_org_id").on(table.orgId)
+}));
+
+export const auditLogs = pgTable("audit_logs", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id"),
+  actorId: text("actor_id").notNull(),
+  actorType: text("actor_type").notNull(),
+  targetId: text("target_id"),
+  eventType: text("event_type").notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  prevHash: text("prev_hash").notNull(),
+  entryHash: text("entry_hash").notNull(),
+  metadata: json("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+}, (table) => ({
+  actorIdx: index("idx_audit_actor").on(table.actorId),
+  eventIdx: index("idx_audit_event").on(table.eventType),
+  createdIdx: index("idx_audit_created_at").on(table.createdAt)
+}));
+```
+
+#### Run the Migration:
+```bash
+npx drizzle-kit generate:pg
+npx drizzle-kit push:pg
+```
+
+---
+
+### 3.3 Cloudflare D1 SQL Schema (`schema.d1.sql`)
+
+For Cloudflare Workers edge deployments, execute the following SQL via Wrangler:
+
+```sql
+-- schema.d1.sql
+
+-- 1. Users table extension
+ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active';
+ALTER TABLE users ADD COLUMN revocation_epoch INTEGER DEFAULT 1;
+
+-- 2. Multi-Device Sessions Table
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_agent TEXT,
+    ip_address TEXT,
+    device_type TEXT,
+    operating_system TEXT,
+    browser TEXT,
+    country_code TEXT,
+    session_epoch INTEGER DEFAULT 1,
+    last_active_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+
+-- 3. Scoped Machine Identity API Keys Table
+CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    org_id TEXT,
+    name TEXT NOT NULL,
+    key_prefix TEXT NOT NULL,
+    key_digest TEXT UNIQUE NOT NULL,
+    crc32_checksum TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'suspended', 'revoked')),
+    last_used_at INTEGER,
+    expires_at INTEGER,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_digest ON api_keys(key_digest);
+CREATE INDEX IF NOT EXISTS idx_api_keys_org_id ON api_keys(org_id);
+
+-- 4. Cryptographically Sealed Immutable Audit Log Table
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY,
+    org_id TEXT,
+    actor_id TEXT NOT NULL,
+    actor_type TEXT NOT NULL,
+    target_id TEXT,
+    event_type TEXT NOT NULL,
+    ip_address TEXT,
+    user_agent TEXT,
+    prev_hash TEXT NOT NULL,
+    entry_hash TEXT NOT NULL,
+    metadata TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_logs(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
+
+-- 5. Multi-Tenant Organizations Tables
+CREATE TABLE IF NOT EXISTS devauthkit_organizations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE NOT NULL,
+    logo_url TEXT,
+    metadata TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS devauthkit_organization_members (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES devauthkit_organizations(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    email TEXT,
+    role TEXT NOT NULL DEFAULT 'member',
+    joined_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(org_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS devauthkit_organization_invitations (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES devauthkit_organizations(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    token_hash TEXT NOT NULL UNIQUE,
+    invited_by_user_id TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+);
+```
+
+#### Apply to Cloudflare D1:
+```bash
+# Local development
+npx wrangler d1 execute AUTH_DB --local --file=./schema.d1.sql
+
+# Production edge deployment
+npx wrangler d1 execute AUTH_DB --remote --file=./schema.d1.sql
+```
+
+---
+
+### 3.4 Raw PostgreSQL DDL Schema
+
+For standard PostgreSQL deployments without an ORM:
+
+```sql
+-- Users Table Extension
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'active';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS revocation_epoch INTEGER DEFAULT 1;
+
+-- Multi-Device Sessions
+CREATE TABLE IF NOT EXISTS sessions (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_agent TEXT,
+    ip_address VARCHAR(45),
+    device_type VARCHAR(32),
+    operating_system VARCHAR(32),
+    browser VARCHAR(32),
+    country_code VARCHAR(8),
+    session_epoch INTEGER DEFAULT 1 NOT NULL,
+    last_active_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+
+-- Scoped Machine API Keys
+CREATE TABLE IF NOT EXISTS api_keys (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    org_id VARCHAR(64),
+    name VARCHAR(255) NOT NULL,
+    key_prefix VARCHAR(32) NOT NULL,
+    key_digest VARCHAR(64) UNIQUE NOT NULL,
+    crc32_checksum VARCHAR(8) NOT NULL,
+    scopes TEXT NOT NULL,
+    status VARCHAR(32) DEFAULT 'active' NOT NULL CHECK (status IN ('active', 'suspended', 'revoked')),
+    last_used_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_digest ON api_keys(key_digest);
+CREATE INDEX IF NOT EXISTS idx_api_keys_org_id ON api_keys(org_id);
+
+-- Immutable Audit Trail
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id VARCHAR(64) PRIMARY KEY,
+    org_id VARCHAR(64),
+    actor_id VARCHAR(64) NOT NULL,
+    actor_type VARCHAR(32) NOT NULL,
+    target_id VARCHAR(64),
+    event_type VARCHAR(64) NOT NULL,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    prev_hash VARCHAR(64) NOT NULL,
+    entry_hash VARCHAR(64) NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_logs(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
+```
+
+---
+
+## 🔀 4. Migrating from External Authentication Providers
+
+DevAuthKit is designed as a drop-in, zero-fee replacement for proprietary identity platforms. Below are dedicated step-by-step migration guides with side-by-side code replacements.
+
+---
+
+### 4.1 Migrating from Clerk to DevAuthKit (Zero MAU Fees)
+
+Clerk charges aggressive per-MAU fees once you pass 10,000 users and locks your customer identities into their proprietary database. DevAuthKit gives you complete data sovereignty and identical UX.
+
+#### 1. Exporting Users from Clerk
+In the Clerk Dashboard:
+1. Navigate to **Users** → **Export Users**.
+2. Download the `users.csv` or request a JSON export via Clerk's Backend API:
+   ```bash
+   curl -X GET "https://api.clerk.com/v1/users?limit=500" \
+     -H "Authorization: Bearer sk_live_..."
+   ```
+3. Load the users into your database using your Prisma or Drizzle adapter. Since Clerk uses bcrypt/scrypt or passwordless OTPs, transitioning users to DevAuthKit passwordless OTP or magic link requires **zero password resets**.
+
+#### 2. Backend Middleware Replacement
+
+```javascript
+// ==========================================
+// ❌ CLERK IMPLEMENTATION
+// ==========================================
+import { clerkMiddleware, getAuth } from "@clerk/express";
+
+app.use(clerkMiddleware());
+
+app.get("/api/protected", (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  res.json({ userId });
+});
+
+// ==========================================
+// ✅ DEVAUTHKIT REPLACEMENT
+// ==========================================
+const devAuthKit = require("devauthkit");
+const { requireAuth } = require("devauthkit");
+
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET,
+  userAdapter: prismaAdapter(prisma.user)
+});
+
+// requireAuth validates JWT Bearer tokens, httpOnly cookies, or sessions automatically
+app.get("/api/protected", requireAuth, (req, res) => {
+  res.json({ user: req.user });
+});
+```
+
+#### 3. Frontend Component Replacement
+
+```tsx
+// ==========================================
+// ❌ CLERK FRONTEND (Next.js / React)
+// ==========================================
+import { SignIn, UserButton, useUser, useAuth } from "@clerk/nextjs";
+
+export function Header() {
+  const { isSignedIn, user } = useUser();
+  const { signOut } = useAuth();
+
+  return (
+    <nav>
+      {isSignedIn ? (
+        <div>
+          <span>{user.primaryEmailAddress}</span>
+          <button onClick={() => signOut()}>Sign Out</button>
+        </div>
+      ) : (
+        <SignIn />
+      )}
+    </nav>
+  );
+}
+
+// ==========================================
+// ✅ DEVAUTHKIT FRONTEND REPLACEMENT
+// ==========================================
+import { useState, useEffect } from "react";
+import { DevAuthClient } from "devauthkit/client";
+
+const auth = new DevAuthClient({ baseUrl: "/auth" });
+
+export function Header() {
+  const [user, setUser] = useState(auth.getUser());
+
+  useEffect(() => {
+    return auth.onAuthStateChanged((currentUser) => {
+      setUser(currentUser);
+    });
+  }, []);
+
+  const handleLogin = async (email: string) => {
+    await auth.sendOTP(email);
+    const otp = prompt("Enter the 6-digit code sent to your email:");
+    if (otp) {
+      await auth.verifyOTP(email, otp);
+    }
+  };
+
+  return (
+    <nav>
+      {user ? (
+        <div>
+          <span>{user.email}</span>
+          <button onClick={() => auth.logout()}>Sign Out</button>
+        </div>
+      ) : (
+        <button onClick={() => handleLogin(prompt("Enter email:") || "")}>
+          Sign In with Email OTP
+        </button>
+      )}
+    </nav>
+  );
+}
+```
+
+---
+
+### 4.2 Migrating from Auth0 / Okta to DevAuthKit (Escape the $800+/mo Enterprise Trap)
+
+Auth0 gates essential features like SAML SSO, Custom Domains, and Audit Streams behind expensive enterprise packages. DevAuthKit provides all of them built-in.
+
+#### 1. Identity & Credentials Migration
+- **Social Identities (Google/GitHub):** Auth0 stores Google/GitHub user IDs (`google-oauth2|12345`). DevAuthKit maps these directly in your `userAdapter.linkOAuthIdentity(userId, { provider: "google", providerId: "12345" })`.
+- **SAML 2.0 Enterprise Connections:** Instead of configuring Auth0 Enterprise Connections at $800+/month, configure your Okta/Azure AD IdP to point directly to DevAuthKit's SAML Service Provider:
+  - **ACS URL:** `https://your-domain.com/auth/sso/callback`
+  - **Entity ID:** `https://your-domain.com/auth/sso/metadata`
+
+#### 2. Server Route Replacement
+
+```javascript
+// ==========================================
+// ❌ AUTH0 EXPRESS IMPLEMENTATION
+// ==========================================
+const { auth, requiresAuth } = require("express-openid-connect");
+
+app.use(
+  auth({
+    authRequired: false,
+    auth0Logout: true,
+    secret: process.env.AUTH0_SECRET,
+    baseURL: process.env.BASE_URL,
+    clientID: process.env.AUTH0_CLIENT_ID,
+    issuerBaseURL: "https://my-tenant.auth0.com"
+  })
+);
+
+app.get("/api/dashboard", requiresAuth(), (req, res) => {
+  res.json({ user: req.oidc.user });
+});
+
+// ==========================================
+// ✅ DEVAUTHKIT IMPLEMENTATION
+// ==========================================
+const devAuthKit = require("devauthkit");
+const { requireAuth } = require("devauthkit");
+
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET,
+  userAdapter: prismaAdapter(prisma.user),
+  oauthProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackUrl: `${process.env.BASE_URL}/auth/oauth/google/callback`
+    }
+  }
+});
+
+app.get("/api/dashboard", requireAuth, (req, res) => {
+  res.json({ user: req.user });
+});
+```
+
+---
+
+### 4.3 Migrating from NextAuth.js / Auth.js to DevAuthKit (Deterministic Simplicity)
+
+NextAuth has undergone severe breaking changes between v4 and v5 (`@auth/core`), causing runtime instability on Node.js/Edge and complex adapter friction. DevAuthKit provides clean, deterministic Express & Hono routes.
+
+#### 1. Database Schema Comparison
+NextAuth requires 4 tables: `Account`, `Session`, `User`, `VerificationToken`.  
+DevAuthKit unifies this:
+- `users` (Core user profile + role + revocation epoch)
+- `sessions` (Multi-device tracking)
+- Built-in Redis or Memory stores handle transient OTPs and magic links without cluttering your persistent database.
+
+#### 2. Backend Route Handler Replacement (Next.js App Router / Hono)
+
+```typescript
+// ==========================================
+// ❌ NEXTAUTH V5 ROUTE HANDLER (app/api/auth/[...nextauth]/route.ts)
+// ==========================================
+import NextAuth from "next-auth";
+import GitHub from "next-auth/providers/github";
+import Email from "next-auth/providers/nodemailer";
+import { PrismaAdapter } from "@auth/prisma-adapter";
+
+export const { handlers, auth, signIn, signOut } = NextAuth({
+  adapter: PrismaAdapter(prisma),
+  providers: [
+    GitHub({ clientId: process.env.GITHUB_ID, clientSecret: process.env.GITHUB_SECRET }),
+    Email({ server: process.env.EMAIL_SERVER, from: process.env.EMAIL_FROM })
+  ],
+  session: { strategy: "jwt" }
+});
+
+// ==========================================
+// ✅ DEVAUTHKIT HONO / EDGE ROUTE HANDLER
+// ==========================================
+import { Hono } from "hono";
+import { createAuthRouter } from "devauthkit/hono";
+
+const app = new Hono();
+
+// Mounts complete auth suite: OTP, Magic Links, Passkeys, SSO, Orgs, Audit Logs
+app.route("/auth", createAuthRouter({
+  jwtSecret: process.env.JWT_SECRET,
+  userAdapter: prismaAdapter(prisma.user),
+  oauthProviders: {
+    github: {
+      clientId: process.env.GITHUB_ID,
+      clientSecret: process.env.GITHUB_SECRET
+    }
+  }
+}));
+
+export default app;
+```
+
+---
+
+### 4.4 Migrating from WorkOS to DevAuthKit (Save $125/connection/mo on SSO & SCIM)
+
+WorkOS charges **$125 per enterprise connection per month** for SAML SSO and SCIM directory sync. For a SaaS with 50 enterprise customers, that is **$6,250/month ($75,000/year)** for simple XML and JSON relaying.
+
+DevAuthKit includes a **native SAML 2.0 Service Provider engine and RFC 7643/7644 SCIM 2.0 Directory Sync** with zero external dependencies and zero recurring fees.
+
+#### 1. SSO Resolution Flow Comparison
+
+```javascript
+// ==========================================
+// ❌ WORKOS IMPLEMENTATION
+// ==========================================
+import { WorkOS } from "@workos-inc/node";
+const workos = new WorkOS(process.env.WORKOS_API_KEY);
+
+app.post("/auth/sso/login", async (req, res) => {
+  const authorizationUrl = workos.sso.getAuthorizationUrl({
+    domain: req.body.email.split("@")[1],
+    redirectUri: "https://mycompany.com/auth/sso/callback",
+    clientID: process.env.WORKOS_CLIENT_ID
+  });
+  res.redirect(authorizationUrl);
+});
+
+// ==========================================
+// ✅ DEVAUTHKIT ZERO-FEE REPLACEMENT
+// ==========================================
+// DevAuthKit handles domain discovery and IdP routing natively!
+// Frontend:
+const client = new DevAuthClient({ baseUrl: "/auth" });
+const { redirectUrl } = await client.loginWithSso("alice@enterprise-customer.com");
+window.location.href = redirectUrl;
+
+// Backend automatically verifies SAML assertions, XML C14N, and RSA signatures,
+// provision users into the matching Organization, and issues tenant-scoped DPoP JWTs.
+```
+
+---
+
+### 4.5 Migrating from Passport.js / Custom Express Sessions to DevAuthKit
+
+Legacy apps frequently rely on fragmented Passport strategies (`passport-local`, `passport-google-oauth20`, `passport-jwt`) wrapped in fragile callback chains.
+
+#### 1. Consolidating All Auth into DevAuthKit
+
+```javascript
+// ==========================================
+// ❌ PASSPORT.JS BOILERPLATE (150+ lines of config)
+// ==========================================
+const passport = require("passport");
+const LocalStrategy = require("passport-local").Strategy;
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
+
+passport.use(new LocalStrategy(/* ... complex hashing, DB lookup ... */));
+passport.use(new GoogleStrategy(/* ... callback hell ... */));
+passport.serializeUser((user, done) => done(null, user.id));
+passport.deserializeUser((id, done) => done(null, { id }));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+// ==========================================
+// ✅ DEVAUTHKIT CONSOLIDATION (10 lines)
+// ==========================================
+const devAuthKit = require("devauthkit");
+const { requireAuth } = require("devauthkit");
+
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  sessionSecret: process.env.SESSION_SECRET,
+  userAdapter: prismaAdapter(prisma.user),
+  oauthProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET
+    }
+  }
+});
+
+// Use requireAuth across all routes
+app.get("/api/profile", requireAuth, (req, res) => {
+  res.json({ user: req.user });
+});
+```
+
+---
+
+## 💻 5. Frontend & Client SDK Migration
+
+DevAuthKit includes a universal, dependency-free JavaScript/TypeScript client SDK (`devauthkit/client`) that runs in browsers, React, Next.js, React Native, and Node.js.
+
+### 5.1 Initializing `DevAuthClient`
+
+```typescript
+import { DevAuthClient } from "devauthkit/client";
+
+export const auth = new DevAuthClient({
+  baseUrl: "/auth", // Your backend mount point
+  dpop: true        // Automatically generate ECDSA P-256 keys & RFC 9449 proofs
+});
+```
+
+### 5.2 Replacing Ad-Hoc Fetch & Token Management
+
+`auth.fetch` is an authenticated wrapper around standard `window.fetch`. It automatically attaches:
+1. `Authorization: DPoP <token>` (or `Bearer <token>`)
+2. `DPoP: <proof_jwt>` thumbprinted to the client's public key
+3. Tenant context headers (`DevAuth-Org-Id`)
+
+```javascript
+// BEFORE: Manual token injection & refresh retry loops
+const token = localStorage.getItem("token");
+const res = await fetch("/api/data", {
+  headers: { Authorization: `Bearer ${token}` }
+});
+
+// AFTER: DevAuthClient handles everything
+const res = await auth.fetch("/api/data");
+const data = await res.json();
+```
+
+### 5.3 Reactive State with `onAuthStateChanged`
+
+Update UI state immediately when login, logout, or token refresh occurs:
+
+```javascript
+const unsubscribe = auth.onAuthStateChanged((user) => {
+  if (user) {
+    console.log("Logged in as:", user.email);
+  } else {
+    console.log("User logged out");
+  }
+});
+
+// Cleanup when unmounting
+// unsubscribe();
+```
+
+### 5.4 React Hooks & Context Integration
+
+Create a simple `AuthProvider` for your React or Next.js tree:
+
+```tsx
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { DevAuthClient } from "devauthkit/client";
+
+interface AuthContextType {
+  user: any;
+  loading: boolean;
+  login: (email: string) => Promise<void>;
+  logout: () => Promise<void>;
+}
+
+const auth = new DevAuthClient({ baseUrl: "/auth" });
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<any>(auth.getUser());
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setUser(auth.getUser());
+    setLoading(false);
+
+    return auth.onAuthStateChanged((updatedUser) => {
+      setUser(updatedUser);
+      setLoading(false);
+    });
+  }, []);
+
+  const login = async (email: string) => {
+    await auth.sendOTP(email);
+    const code = prompt("Enter 6-digit OTP:");
+    if (code) await auth.verifyOTP(email, code);
+  };
+
+  const logout = async () => {
+    await auth.logout();
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth must be used within an AuthProvider");
+  return context;
+};
+```
+
+---
+
+## 🛡️ 6. Zero-Downtime Deployment & Cutover Strategy
+
+To migrate a live production application with thousands of active users without logging anyone out or dropping requests, follow this 4-phase rollout plan.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 ZERO-DOWNTIME AUTHENTICATION CUTOVER PHASES                 │
+├─────────────────┬─────────────────┬────────────────────┬────────────────────┤
+│ Phase 1: Schema │ Phase 2: Dual   │ Phase 3: Traffic   │ Phase 4: Deprecate │
+│ Preparation     │ Verification    │ Cutover            │ Legacy System      │
+├─────────────────┼─────────────────┼────────────────────┼────────────────────┤
+│ • Apply DDL     │ • Accept both   │ • Point frontend   │ • Archive legacy   │
+│   migrations    │   legacy JWTs   │   to DevAuthKit    │   auth tables      │
+│ • Set default   │   and DAK       │ • Refresh token    │ • Revoke vendor    │
+│   epochs        │   tokens        │   minting active   │   cloud API keys   │
+└─────────────────┴─────────────────┴────────────────────┴────────────────────┘
+```
+
+### 6.1 Dual-Write & Shadow Verification
+
+Configure your API gateway or Express middleware to accept either existing legacy tokens or new DevAuthKit tokens during the transition:
+
+```javascript
+// Middleware: Graceful Dual-Verification
+const { requireAuth: devAuthMiddleware } = require("devauthkit");
+
+function dualAuthMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  // 1. Try DevAuthKit verification
+  devAuthMiddleware(req, res, (err) => {
+    if (!err && req.user) {
+      return next(); // Verified by DevAuthKit!
+    }
+
+    // 2. Fallback to Legacy JWT verification (e.g., Clerk or Auth0 secret)
+    try {
+      const token = authHeader?.replace("Bearer ", "");
+      const legacyPayload = jwt.verify(token, process.env.LEGACY_AUTH_SECRET);
+      req.user = { id: legacyPayload.sub, email: legacyPayload.email };
+      return next();
+    } catch (legacyErr) {
+      return res.status(401).json({ error: "Invalid or expired credentials" });
+    }
+  });
+}
+```
+
+### 6.2 Password Hash Migration (Lazy Re-Hashing vs. OTP Transition)
+
+If migrating from a legacy password-based system:
+1. **Recommended Path: Passwordless Email OTP / Magic Links.**  
+   Passwordless eliminates the need to migrate password hashes altogether. The user enters their email, receives an instant 6-digit OTP or 1-click magic link, and their account is validated without credential loss.
+2. **Alternative: Lazy Hash Re-Hashing.**  
+   If you wish to retain password support, verify the user's password using the old algorithm (e.g., `bcrypt`) on their next login, then re-hash and save using Web Crypto PBKDF2/Argon2.
+
+### 6.3 Phased Cutover Checklist
+
+- [ ] **Pre-Flight:** Run `devAuthKit.checkConfig()` on your production environment variables to verify secrets, mailer credentials, and store configurations.
+- [ ] **Database Migrations:** Apply the D1 or PostgreSQL DDL migrations (`revocation_epoch`, `status`, `sessions`, `api_keys`, `audit_logs`).
+- [ ] **Redis / Cache Preparation:** If running multi-instance Node.js, ensure Redis connection strings are configured for OTP and refresh token rotation.
+- [ ] **Deploy Backend Dual-Verification:** Enable the transitional middleware allowing both legacy and new token verification.
+- [ ] **Deploy Frontend Client SDK:** Update client apps to authenticate through `DevAuthClient`.
+- [ ] **Verify SAML/SCIM Endpoints:** Test SSO connectivity with your enterprise customers in staging.
+- [ ] **Decommission Vendor Cloud:** Revoke Clerk / Auth0 / WorkOS API keys and cancel recurring subscriptions.
+
+---
+
+## ❓ 7. Troubleshooting & Common Pitfalls
+
+### 1. `EPERM` or `Cannot find module 'node:crypto'` on Older Node Versions
+**Issue:** `TypeError: globalThis.SubtleCrypto is undefined` on Node.js 18.x.  
+**Resolution:** DevAuthKit includes native automatic polyfills for Node 18 (`globalThis.SubtleCrypto` and `globalThis.File`). If running in custom sandboxes, ensure you import `devauthkit` before other libraries.
+
+### 2. Cookies Not Persisting Across Subdomains
+**Issue:** Frontend on `app.example.com` does not receive session cookies set by backend on `api.example.com`.  
+**Resolution:** Set the `cookieDomain` option in your configuration:
+```javascript
+devAuthKit(app, {
+  jwtSecret: process.env.JWT_SECRET,
+  cookieDomain: ".example.com", // Shared across all subdomains
+  cookieSameSite: "lax",        // Or "none" with cookieSecure: true for cross-site
+  cookieSecure: true
+});
+```
+
+### 3. DPoP Replay Clock Skew Errors
+**Issue:** `HTTP 401 Unauthorized: DPoP proof timestamp outside acceptable window`.  
+**Resolution:** Ensure server and client clocks are synchronized via NTP. DevAuthKit provides a configurable tolerance window (default 300 seconds).
+
+### 4. Cloudflare D1 Batch Queries Exceeding Limits
+**Issue:** Miniflare or Cloudflare D1 throws on huge transactions.  
+**Resolution:** DevAuthKit's D1 stores (`CloudflareD1RefreshTokenStore`, `CloudflareD1OrganizationStore`) automatically batch queries in atomic chunks of 50 statements or fewer to guarantee compliance with Cloudflare edge engine limits.
+
+---
+
+## 📚 Related Documentation
+
+- 📖 [Full Documentation Site](https://gautamsharma-coder.github.io/devauthkit/docs.html)
+- 🏛️ [Next-Gen Architecture Specification (v2.0)](ARCHITECTURE.md)
+- 🔐 [Security Policy & Disclosures](SECURITY.md)
+- 📋 [Complete Feature Catalog](FEATURES.md)
+- 🤝 [Contributing Guidelines](CONTRIBUTING.md)
+

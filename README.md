@@ -19,6 +19,7 @@
 
 📚 **[Read the Full Documentation & API Reference →](https://gautamsharma-coder.github.io/devauthkit/docs.html)**  
 🏛️ **[Read the Next-Gen Architecture Specification (v2.0) →](ARCHITECTURE.md)**  
+🔄 **[Migration Guide (Clerk, Auth0, NextAuth, WorkOS & Version Upgrades) →](MIGRATION.md)**  
 🔐 **[Security Policy & Vulnerability Disclosure →](SECURITY.md)**  
 🌐 **[Live Demo & Interactive Sandbox →](https://gautamsharma-coder.github.io/devauthkit/)**  
 ⚡ **[Run in 1-Click on StackBlitz →](https://stackblitz.com/github/GautamSharma-coder/devauthkit)**

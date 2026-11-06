@@ -152,6 +152,7 @@
     "index.js",
     "index.d.ts",
     "README.md",
+    "MIGRATION.md",
     "LICENSE"
   ],
   "scripts": {
