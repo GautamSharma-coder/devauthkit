@@ -9,6 +9,20 @@ const {
 } = require("../core/ssoService");
 const { emitWebhookEvent } = require("../core/webhookDispatcher");
 const { signJwt } = require("../utils/webCrypto");
+const {
+  getActorId,
+  isSystemAdmin,
+  authorizeOrgAdmin,
+  validateExternalHttpUrl,
+  isAllowedRedirectUrl
+} = require("../utils/accessControl");
+const { isUserBlocked, getUserEpoch } = require("./userManagementController");
+
+function sanitizeConnection(conn) {
+  if (!conn) return conn;
+  if (!conn.oidcClientSecret) return conn;
+  return { ...conn, oidcClientSecret: "***" };
+}
 
 function getSsoStore() {
   const store = config.get("ssoStore") || config.get("sso")?.store;
@@ -38,6 +52,14 @@ function setAuthCookie(res, token) {
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
   }
+}
+
+function cleanApiPrefix(prefix) {
+  let clean = prefix || "/auth";
+  while (clean.endsWith("/")) {
+    clean = clean.slice(0, -1);
+  }
+  return clean;
 }
 
 /**
@@ -70,13 +92,30 @@ async function createConnection(req, res) {
     if (!orgId) {
       return res.status(400).json({ error: "orgId is required to create an SSO connection" });
     }
+    const authz = await authorizeOrgAdmin(req, orgId);
+    if (!authz.allowed) {
+      return res.status(authz.status).json({ error: authz.error });
+    }
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "Connection name is required" });
+    }
+    for (const [field, val] of [
+      ["idpSsoUrl", idpSsoUrl],
+      ["idpSloUrl", idpSloUrl],
+      ["oidcDiscoveryUrl", oidcDiscoveryUrl],
+      ["oidcIssuer", oidcIssuer]
+    ]) {
+      if (val !== undefined && val !== null && val !== "") {
+        const urlCheck = validateExternalHttpUrl(String(val), { allowPrivate: true });
+        if (!urlCheck.valid) {
+          return res.status(400).json({ error: `Invalid ${field}: ${urlCheck.error}` });
+        }
+      }
     }
 
     const host = (req.get && req.get("host")) || req.headers?.host || "localhost";
     const protocol = req.protocol || "http";
-    const apiPrefix = (config.get("apiPrefix") || "/auth").replace(/\/+$/, "");
+    const apiPrefix = cleanApiPrefix(config.get("apiPrefix"));
 
     // Generate SP metadata defaults if not provided
     const tempId = id || `conn_${Date.now().toString(36)}`;
@@ -110,7 +149,7 @@ async function createConnection(req, res) {
       actor: req.user
     });
 
-    return res.status(201).json({ success: true, connection });
+    return res.status(201).json({ success: true, connection: sanitizeConnection(connection) });
   } catch (err) {
     return res.status(400).json({ error: err.message || "Failed to create SSO connection" });
   }
@@ -122,9 +161,34 @@ async function createConnection(req, res) {
 async function listConnections(req, res) {
   try {
     const store = getSsoStore();
-    const orgId = req.query.orgId || req.params.orgId || req.org?.id;
+    const orgId = req.query.orgId || req.params.orgId || req.org?.id || req.user?.org_id;
+    if (!isSystemAdmin(req.user)) {
+      if (orgId) {
+        const authz = await authorizeOrgAdmin(req, orgId);
+        if (!authz.allowed) {
+          return res.status(authz.status).json({ error: authz.error });
+        }
+      } else {
+        const orgStore = getOrgStore();
+        const actorId = getActorId(req.user);
+        if (!orgStore || !actorId) {
+          return res.status(403).json({ error: "Forbidden: Administrator privileges required" });
+        }
+        const userOrgs = await orgStore.listUserOrgs(actorId);
+        const adminOrgIds = new Set(
+          userOrgs
+            .filter((o) => o.role === "owner" || o.role === "admin")
+            .map((o) => String(o.id))
+        );
+        const allConnections = await store.listConnections();
+        const filtered = allConnections
+          .filter((c) => adminOrgIds.has(String(c.orgId)))
+          .map(sanitizeConnection);
+        return res.json({ success: true, connections: filtered });
+      }
+    }
     const connections = await store.listConnections(orgId);
-    return res.json({ success: true, connections });
+    return res.json({ success: true, connections: connections.map(sanitizeConnection) });
   } catch (err) {
     return res.status(500).json({ error: err.message || "Failed to list SSO connections" });
   }
@@ -140,7 +204,11 @@ async function getConnection(req, res) {
     if (!connection) {
       return res.status(404).json({ error: "SSO connection not found" });
     }
-    return res.json({ success: true, connection });
+    const authz = await authorizeOrgAdmin(req, connection.orgId);
+    if (!authz.allowed) {
+      return res.status(authz.status).json({ error: authz.error });
+    }
+    return res.json({ success: true, connection: sanitizeConnection(connection) });
   } catch (err) {
     return res.status(500).json({ error: err.message || "Failed to get SSO connection" });
   }
@@ -152,18 +220,42 @@ async function getConnection(req, res) {
 async function updateConnection(req, res) {
   try {
     const store = getSsoStore();
-    const connection = await store.updateConnection(req.params.id, req.body || {});
+    const existing = await store.getConnection(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: "SSO connection not found" });
+    }
+    const authz = await authorizeOrgAdmin(req, existing.orgId);
+    if (!authz.allowed) {
+      return res.status(authz.status).json({ error: authz.error });
+    }
+
+    const rawUpdates = { ...(req.body || {}) };
+    delete rawUpdates.id;
+    delete rawUpdates.orgId;
+    delete rawUpdates.domainVerified;
+    delete rawUpdates.domainVerificationToken;
+
+    for (const field of ["idpSsoUrl", "idpSloUrl", "oidcDiscoveryUrl", "oidcIssuer"]) {
+      if (rawUpdates[field] !== undefined && rawUpdates[field] !== null && rawUpdates[field] !== "") {
+        const urlCheck = validateExternalHttpUrl(String(rawUpdates[field]), { allowPrivate: true });
+        if (!urlCheck.valid) {
+          return res.status(400).json({ error: `Invalid ${field}: ${urlCheck.error}` });
+        }
+      }
+    }
+
+    const connection = await store.updateConnection(req.params.id, rawUpdates);
     if (!connection) {
       return res.status(404).json({ error: "SSO connection not found" });
     }
 
     emitWebhookEvent("sso.connection_updated", {
-      connection,
+      connection: sanitizeConnection(connection),
       orgId: connection.orgId,
       actor: req.user
     });
 
-    return res.json({ success: true, connection });
+    return res.json({ success: true, connection: sanitizeConnection(connection) });
   } catch (err) {
     return res.status(400).json({ error: err.message || "Failed to update SSO connection" });
   }
@@ -178,6 +270,10 @@ async function deleteConnection(req, res) {
     const existing = await store.getConnection(req.params.id);
     if (!existing) {
       return res.status(404).json({ error: "SSO connection not found" });
+    }
+    const authz = await authorizeOrgAdmin(req, existing.orgId);
+    if (!authz.allowed) {
+      return res.status(authz.status).json({ error: authz.error });
     }
 
     await store.deleteConnection(req.params.id);
@@ -203,6 +299,10 @@ async function verifyDomain(req, res) {
     const connection = await store.getConnection(req.params.id);
     if (!connection) {
       return res.status(404).json({ error: "SSO connection not found" });
+    }
+    const authz = await authorizeOrgAdmin(req, connection.orgId);
+    if (!authz.allowed) {
+      return res.status(authz.status).json({ error: authz.error });
     }
 
     const domain = (req.body?.domain || connection.domains[0] || "").toLowerCase().trim().replace(/^@/, "");
@@ -324,7 +424,7 @@ async function getSpMetadata(req, res) {
     } else {
       const host = (req.get && req.get("host")) || req.headers?.host || "localhost";
       const protocol = req.protocol || "http";
-      const apiPrefix = (config.get("apiPrefix") || "/auth").replace(/\/+$/, "");
+      const apiPrefix = cleanApiPrefix(config.get("apiPrefix"));
       spEntityId = `${protocol}://${host}${apiPrefix}/sso/saml/metadata.xml`;
       acsUrl = `${protocol}://${host}${apiPrefix}/sso/saml/acs`;
     }
@@ -415,8 +515,16 @@ async function handleSamlAcs(req, res) {
       id: dbUser?.id !== undefined ? dbUser.id : email,
       email,
       name: name || dbUser?.name,
-      ...(dbUser?.role ? { role: dbUser.role } : {})
+      ...(dbUser?.role ? { role: dbUser.role } : {}),
+      uep: getUserEpoch(dbUser?.id !== undefined ? dbUser.id : email)
     };
+
+    if (isUserBlocked(userPayload.id)) {
+      return res.status(403).json({
+        error: "account_suspended",
+        message: "Account has been suspended by an administrator"
+      });
+    }
 
     // JIT Organization Membership Provisioning
     const orgStore = getOrgStore();
@@ -468,15 +576,13 @@ async function handleSamlAcs(req, res) {
       provider: "sso_saml"
     });
 
-    // Check for redirect URL in RelayState
-    if (relayState && typeof relayState === "string") {
-      try {
-        const targetUrl = new URL(relayState);
+    // Check for allowlisted redirect URL in RelayState (never redirect to untrusted external domains)
+    if (relayState && typeof relayState === "string" && isAllowedRedirectUrl(relayState)) {
+      const targetUrl = new URL(relayState.trim());
+      if (!config.get("setHttpOnlyCookie")) {
         targetUrl.searchParams.set("token", token);
-        return res.redirect(targetUrl.toString());
-      } catch {
-        // RelayState is not an absolute URL, return JSON
       }
+      return res.redirect(targetUrl.toString());
     }
 
     return res.json({

@@ -51,7 +51,8 @@ class SessionService {
    */
   registerSession(params) {
     const { sessionId, userId, ipAddress, userAgent } = params;
-    if (!sessionId || !userId) return null;
+    if (!sessionId || userId === undefined || userId === null || userId === "") return null;
+    const normalizedUserId = String(userId);
 
     const { deviceType, os, browser } = parseUserAgent(userAgent);
     const now = Date.now();
@@ -66,7 +67,7 @@ class SessionService {
 
     const sessionRecord = {
       id: sessionId,
-      userId,
+      userId: normalizedUserId,
       ipAddress: ipAddress || "127.0.0.1",
       userAgent: userAgent || "Unknown",
       deviceType,
@@ -80,10 +81,10 @@ class SessionService {
 
     this.sessions.set(sessionId, sessionRecord);
 
-    if (!this.userSessions.has(userId)) {
-      this.userSessions.set(userId, new Set());
+    if (!this.userSessions.has(normalizedUserId)) {
+      this.userSessions.set(normalizedUserId, new Set());
     }
-    this.userSessions.get(userId).add(sessionId);
+    this.userSessions.get(normalizedUserId).add(sessionId);
 
     return sessionRecord;
   }
@@ -95,7 +96,8 @@ class SessionService {
    * @returns {Array<Object>}
    */
   listUserSessions(userId, currentSessionId) {
-    const sessionIds = this.userSessions.get(userId);
+    if (userId === undefined || userId === null) return [];
+    const sessionIds = this.userSessions.get(String(userId));
     if (!sessionIds) return [];
 
     const result = [];
@@ -123,12 +125,12 @@ class SessionService {
   revokeSession(sessionId, userId) {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
-    if (userId && session.userId !== userId) return false;
+    if (userId !== undefined && userId !== null && String(session.userId) !== String(userId)) return false;
 
     session.status = "revoked";
     this.sessions.delete(sessionId);
 
-    const userSet = this.userSessions.get(session.userId);
+    const userSet = this.userSessions.get(String(session.userId));
     if (userSet) {
       userSet.delete(sessionId);
     }
@@ -143,13 +145,15 @@ class SessionService {
    * @returns {number} Count of revoked sessions
    */
   revokeOtherSessions(userId, currentSessionId) {
-    const sessionIds = this.userSessions.get(userId);
+    if (userId === undefined || userId === null) return 0;
+    const normalizedUserId = String(userId);
+    const sessionIds = this.userSessions.get(normalizedUserId);
     if (!sessionIds) return 0;
 
     let count = 0;
     for (const sid of Array.from(sessionIds)) {
       if (sid !== currentSessionId) {
-        this.revokeSession(sid, userId);
+        this.revokeSession(sid, normalizedUserId);
         count++;
       }
     }
@@ -163,12 +167,14 @@ class SessionService {
    * @returns {number}
    */
   revokeAllUserSessions(userId) {
-    const sessionIds = this.userSessions.get(userId);
+    if (userId === undefined || userId === null) return 0;
+    const normalizedUserId = String(userId);
+    const sessionIds = this.userSessions.get(normalizedUserId);
     if (!sessionIds) return 0;
 
     let count = 0;
     for (const sid of Array.from(sessionIds)) {
-      this.revokeSession(sid, userId);
+      this.revokeSession(sid, normalizedUserId);
       count++;
     }
 

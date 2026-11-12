@@ -1,6 +1,7 @@
 // server/middleware/requireApiKey.js
 const config = require("../config");
 const { matchesScopes } = require("../core/apiKeyService");
+const { isUserBlocked } = require("../controllers/userManagementController");
 
 function getApiKeyService() {
   const service = config.get("apiKeyService");
@@ -45,6 +46,13 @@ function requireApiKey(requiredScopes = []) {
       return res.status(401).json({
         error: "invalid_api_key",
         message: "API key is invalid, expired, or has been revoked"
+      });
+    }
+
+    if (keyRecord.userId && isUserBlocked(keyRecord.userId)) {
+      return res.status(403).json({
+        error: "account_suspended",
+        message: "Account has been suspended by an administrator"
       });
     }
 

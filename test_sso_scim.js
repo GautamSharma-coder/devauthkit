@@ -399,7 +399,9 @@ async function runSsoScimTests() {
     idpCertificates: [publicKey]
   });
 
-  assert(conn1.id && conn1.domains.includes("acme.com") && conn1.domains.includes("acme-corp.com"), "MemorySsoStore creates connection with normalized domains");
+  const hasAcmeDomain = conn1.domains.some((d) => d === "acme.com");
+  const hasAcmeCorpDomain = conn1.domains.some((d) => d === "acme-corp.com");
+  assert(conn1.id && hasAcmeDomain && hasAcmeCorpDomain, "MemorySsoStore creates connection with normalized domains");
 
   const connByDomain = await memStore.getConnectionByDomain("acme.com");
   assert(connByDomain && connByDomain.id === conn1.id, "MemorySsoStore resolves connection by domain");

@@ -252,7 +252,7 @@ class ApiKeyService {
     if (!this.store) throw new Error("Store is not configured");
     const existing = await this.store.getById(keyId);
     if (!existing) throw new Error("API key not found");
-    if (existing.userId !== userId) throw new Error("Unauthorized to roll this API key");
+    if (String(existing.userId) !== String(userId)) throw new Error("Unauthorized to roll this API key");
 
     // Revoke old key
     await this.revokeKey(keyId, userId);
@@ -271,7 +271,7 @@ class ApiKeyService {
     if (!this.store) throw new Error("Store is not configured");
     const existing = await this.store.getById(keyId);
     if (!existing) throw new Error("API key not found");
-    if (existing.userId !== userId) throw new Error("Unauthorized to revoke this API key");
+    if (String(existing.userId) !== String(userId)) throw new Error("Unauthorized to revoke this API key");
 
     // Clear from cache
     if (existing.keyDigest) {
@@ -295,7 +295,7 @@ class ApiKeyService {
     if (!this.store) throw new Error("Store is not configured");
     const existing = await this.store.getById(keyId);
     if (!existing) throw new Error("API key not found");
-    if (existing.userId !== userId) throw new Error("Unauthorized to update this API key");
+    if (String(existing.userId) !== String(userId)) throw new Error("Unauthorized to update this API key");
 
     if (existing.keyDigest) {
       this._cache.delete(existing.keyDigest);

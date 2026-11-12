@@ -1421,8 +1421,8 @@ async function runTests() {
     if (typeof server.closeAllConnections === "function") {
       server.closeAllConnections();
     }
-    server.close();
-    process.exit(passed === total ? 0 : 1);
+    await new Promise((resolve) => server.close(resolve));
+    process.exitCode = passed === total ? 0 : 1;
   }
 }
 

@@ -1,33 +1,44 @@
 // server/controllers/userManagementController.js
 const config = require("../config");
 const defaultRefreshTokenStore = require("../stores/defaultRefreshTokenStore");
+const { defaultSessionService } = require("../core/sessionService");
 const { emitAuditLog } = require("../core/auditLogService");
 const { emitWebhookEvent } = require("../core/webhookDispatcher");
+const { getActorId, isSystemAdmin } = require("../utils/accessControl");
 
 // In-memory fallback tracking for user status and revocation epochs
-const userStatusRegistry = new Map(); // userId -> { status: "suspended"|"active", epoch: number, reason: string, updatedAt: number }
+const userStatusRegistry = new Map(); // String(userId) -> { status: "suspended"|"active", epoch: number, reason: string, updatedAt: number }
+
+function normalizeUserId(userId) {
+  if (userId === undefined || userId === null) return "";
+  return String(userId);
+}
 
 function getStatusEntry(userId) {
-  if (!userStatusRegistry.has(userId)) {
-    userStatusRegistry.set(userId, { status: "active", epoch: 1, reason: null, updatedAt: Date.now() });
+  const key = normalizeUserId(userId);
+  if (!userStatusRegistry.has(key)) {
+    userStatusRegistry.set(key, { status: "active", epoch: 1, reason: null, updatedAt: Date.now() });
   }
-  return userStatusRegistry.get(userId);
+  return userStatusRegistry.get(key);
 }
 
 function isUserBlocked(userId) {
-  const entry = userStatusRegistry.get(userId);
+  const key = normalizeUserId(userId);
+  if (!key) return false;
+  const entry = userStatusRegistry.get(key);
   return entry ? entry.status === "suspended" : false;
 }
 
 function getUserEpoch(userId) {
-  const entry = userStatusRegistry.get(userId);
+  const key = normalizeUserId(userId);
+  if (!key) return 1;
+  const entry = userStatusRegistry.get(key);
   return entry ? entry.epoch : 1;
 }
 
 async function blockUser(req, res) {
   try {
-    const callerRole = req.user?.role;
-    if (callerRole !== "admin" && callerRole !== "superadmin") {
+    if (!isSystemAdmin(req.user)) {
       return res.status(403).json({ error: "forbidden", message: "Only administrators can block users" });
     }
 
@@ -38,12 +49,13 @@ async function blockUser(req, res) {
       return res.status(400).json({ error: "missing_user_id" });
     }
 
-    if (userId === req.user.id) {
+    const targetUserId = normalizeUserId(userId);
+    if (targetUserId === normalizeUserId(req.user.id)) {
       return res.status(400).json({ error: "cannot_block_self", message: "Cannot block your own user account" });
     }
 
     // 1. Update status and increment epoch in registry
-    const entry = getStatusEntry(userId);
+    const entry = getStatusEntry(targetUserId);
     entry.status = "suspended";
     entry.epoch += 1;
     entry.reason = reason || "Administrative suspension";
@@ -53,29 +65,33 @@ async function blockUser(req, res) {
     const userAdapter = config.get("userAdapter");
     if (userAdapter && typeof userAdapter.blockUser === "function") {
       try {
-        await userAdapter.blockUser(userId, reason);
+        await userAdapter.blockUser(targetUserId, reason);
       } catch (err) {
         console.error("[DevAuthKit] UserAdapter.blockUser failed:", err);
       }
     }
 
-    // 3. Purge all refresh sessions for this user
+    // 3. Purge all refresh sessions and active device sessions for this user
     const refreshTokenStore = config.get("refreshTokenStore") || defaultRefreshTokenStore;
-    if (refreshTokenStore && typeof refreshTokenStore.revokeAllUserSessions === "function") {
+    if (refreshTokenStore && typeof refreshTokenStore.revokeAll === "function") {
       try {
-        await refreshTokenStore.revokeAllUserSessions(userId);
+        await refreshTokenStore.revokeAll(targetUserId);
       } catch (err) {
         console.error("[DevAuthKit] Revoking user refresh sessions failed:", err);
       }
+    }
+    const sessionService = config.get("sessionService") || defaultSessionService;
+    if (sessionService && typeof sessionService.revokeAllUserSessions === "function") {
+      sessionService.revokeAllUserSessions(targetUserId);
     }
 
     // 4. Suspend user API keys if configured
     const apiKeyService = config.get("apiKeyService");
     if (apiKeyService && apiKeyService.store) {
       try {
-        const keys = await apiKeyService.listKeys(userId);
+        const keys = await apiKeyService.listKeys(targetUserId);
         for (const key of keys) {
-          await apiKeyService.updateKey(key.id, userId, { status: "suspended" });
+          await apiKeyService.updateKey(key.id, key.userId, { status: "suspended" });
         }
       } catch (err) {
         console.error("[DevAuthKit] Suspending user API keys failed:", err);
@@ -114,8 +130,7 @@ async function blockUser(req, res) {
 
 async function unblockUser(req, res) {
   try {
-    const callerRole = req.user?.role;
-    if (callerRole !== "admin" && callerRole !== "superadmin") {
+    if (!isSystemAdmin(req.user)) {
       return res.status(403).json({ error: "forbidden", message: "Only administrators can unblock users" });
     }
 
@@ -168,6 +183,9 @@ async function unblockUser(req, res) {
 async function getUserStatus(req, res) {
   try {
     const { userId } = req.params;
+    if (!isSystemAdmin(req.user) && getActorId(req.user) !== normalizeUserId(userId)) {
+      return res.status(403).json({ error: "forbidden", message: "Cannot inspect another user's status" });
+    }
     const entry = getStatusEntry(userId);
 
     return res.json({

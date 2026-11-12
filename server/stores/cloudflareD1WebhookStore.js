@@ -187,7 +187,7 @@ class CloudflareD1WebhookStore {
       .prepare(`DELETE FROM ${this.endpointsTable} WHERE id = ?`)
       .bind(String(id))
       .run();
-    return res.meta?.changes > 0 || true;
+    return (res.meta?.changes ?? 0) > 0;
   }
 
   async recordDelivery(record) {

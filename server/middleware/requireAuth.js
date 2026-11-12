@@ -3,6 +3,37 @@ const config = require("../config");
 const defaultRefreshTokenStore = require("../stores/defaultRefreshTokenStore");
 const { verifyDPoPProof, DPoPError } = require("../core/dpopService");
 const { isUserBlocked, getUserEpoch } = require("../controllers/userManagementController");
+const { isImpersonationRevoked } = require("../controllers/impersonationController");
+
+const IMPERSONATION_RESTRICTED_PATHS = [
+  "/api-keys",
+  "/impersonate",
+  "/block",
+  "/unblock",
+  "/mfa",
+  "/passkeys",
+  "/oauth",
+  "/sessions",
+  "/webhooks",
+  "/sso",
+  "/scim"
+];
+
+const API_KEY_RESTRICTED_AUTH_PATHS = [
+  "/api-keys",
+  "/impersonate",
+  "/end-impersonation",
+  "/block",
+  "/unblock",
+  "/mfa",
+  "/passkeys",
+  "/oauth",
+  "/sessions",
+  "/webhooks",
+  "/sso",
+  "/scim",
+  "/orgs"
+];
 
 function getRefreshTokenStore() {
   return config.get("refreshTokenStore") || defaultRefreshTokenStore;
@@ -28,7 +59,7 @@ async function attachVerifiedToken(token, req, res, next, source) {
     return unauthorized(res, `Unauthorized: Invalid or expired ${source}`);
   }
 
-  const userId = decoded.id || decoded.sub;
+  const userId = decoded.id ?? decoded.sub;
 
   // Check account suspension status
   if (userId && isUserBlocked(userId)) {
@@ -122,15 +153,16 @@ async function attachVerifiedToken(token, req, res, next, source) {
 
   // Handle RFC 8693 Impersonation Dual Attribution
   if (decoded.act) {
+    if (isImpersonationRevoked(decoded.jti)) {
+      return unauthorized(res, "Unauthorized: Impersonation session has ended");
+    }
     req.actor = decoded.act;
 
     // Security Boundary: Impersonated sessions cannot access credential management or admin routes
     const path = (req.originalUrl || req.url || "").toLowerCase();
     if (
-      path.includes("/api-keys") ||
-      path.includes("/impersonate") ||
-      path.includes("/block") ||
-      path.includes("/unblock")
+      IMPERSONATION_RESTRICTED_PATHS.some((prefix) => path.includes(prefix)) ||
+      (path.includes("/orgs") && req.method !== "GET")
     ) {
       return res.status(403).json({
         error: "impersonation_restricted",
@@ -143,29 +175,46 @@ async function attachVerifiedToken(token, req, res, next, source) {
   return next();
 }
 
+async function authenticateApiKey(rawKey, req, res, next) {
+  const apiKeyService = config.get("apiKeyService");
+  if (!apiKeyService) {
+    return unauthorized(res, "Unauthorized: Invalid or revoked API key");
+  }
+  const keyRecord = await apiKeyService.verifyKey(rawKey);
+  if (!keyRecord) {
+    return unauthorized(res, "Unauthorized: Invalid or revoked API key");
+  }
+  if (keyRecord.userId && isUserBlocked(keyRecord.userId)) {
+    return res.status(403).json({
+      error: "account_suspended",
+      message: "Account has been suspended by an administrator"
+    });
+  }
+  const path = (req.originalUrl || req.url || "").toLowerCase();
+  if (API_KEY_RESTRICTED_AUTH_PATHS.some((prefix) => path.includes(prefix))) {
+    return res.status(403).json({
+      error: "api_key_restricted",
+      message: "API keys cannot access user credential or administrative endpoints"
+    });
+  }
+  req.apiKey = keyRecord;
+  req.user = {
+    id: keyRecord.userId,
+    org_id: keyRecord.orgId || null,
+    role: "apiKey",
+    isApiKey: true,
+    scopes: keyRecord.scopes,
+    apiKeyId: keyRecord.id
+  };
+  return next();
+}
+
 module.exports = async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization || req.headers.Authorization;
   if (authHeader) {
     // Check for API Key (Bearer dak_...)
     if (authHeader.startsWith("Bearer dak_")) {
-      const rawKey = authHeader.slice(7);
-      const apiKeyService = config.get("apiKeyService");
-      if (apiKeyService) {
-        const keyRecord = await apiKeyService.verifyKey(rawKey);
-        if (keyRecord) {
-          req.apiKey = keyRecord;
-          req.user = {
-            id: keyRecord.userId,
-            org_id: keyRecord.orgId || null,
-            role: "apiKey",
-            isApiKey: true,
-            scopes: keyRecord.scopes,
-            apiKeyId: keyRecord.id
-          };
-          return next();
-        }
-      }
-      return unauthorized(res, "Unauthorized: Invalid or revoked API key");
+      return authenticateApiKey(authHeader.slice(7), req, res, next);
     }
 
     let token = null;
@@ -183,24 +232,7 @@ module.exports = async function requireAuth(req, res, next) {
 
   // Check for x-api-key header
   if (req.headers["x-api-key"] && req.headers["x-api-key"].startsWith("dak_")) {
-    const rawKey = req.headers["x-api-key"];
-    const apiKeyService = config.get("apiKeyService");
-    if (apiKeyService) {
-      const keyRecord = await apiKeyService.verifyKey(rawKey);
-      if (keyRecord) {
-        req.apiKey = keyRecord;
-        req.user = {
-          id: keyRecord.userId,
-          org_id: keyRecord.orgId || null,
-          role: "apiKey",
-          isApiKey: true,
-          scopes: keyRecord.scopes,
-          apiKeyId: keyRecord.id
-        };
-        return next();
-      }
-    }
-    return unauthorized(res, "Unauthorized: Invalid or revoked API key");
+    return authenticateApiKey(req.headers["x-api-key"], req, res, next);
   }
 
   const cookieName = config.get("cookieName") || "devauth_token";
@@ -212,12 +244,18 @@ module.exports = async function requireAuth(req, res, next) {
   if (cookieToken) return attachVerifiedToken(cookieToken, req, res, next, "cookie token");
 
   if (req.session?.user) {
-    const userId = req.session.user.id || req.session.user.sub;
+    const userId = req.session.user.id ?? req.session.user.sub;
     if (userId && isUserBlocked(userId)) {
       return res.status(403).json({
         error: "account_suspended",
         message: "Account has been suspended by an administrator"
       });
+    }
+    if (req.session.user.uep !== undefined && userId && getUserEpoch(userId) > req.session.user.uep) {
+      return unauthorized(res, "Unauthorized: Session has been revoked");
+    }
+    if (req.session.user.act && isImpersonationRevoked(req.session.user.jti)) {
+      return unauthorized(res, "Unauthorized: Impersonation session has ended");
     }
 
     try {

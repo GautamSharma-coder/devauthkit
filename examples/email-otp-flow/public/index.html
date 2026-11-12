@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevAuthKit — One-Page Email OTP &amp; Resend Rate Limiting Example</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #111827;
+      --card-border: #1f2937;
+      --card-hover: #1e293b;
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --primary-light: rgba(99, 102, 241, 0.15);
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --text-subtle: #6b7280;
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.12);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.12);
+      --error: #ef4444;
+      --error-bg: rgba(239, 68, 68, 0.12);
+      --radius: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    body {
+      background: radial-gradient(circle at top, #1e1b4b 0%, var(--bg) 60%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 520px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .brand-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      background: var(--primary-light);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      color: #a5b4fc;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    .brand-pill .dot {
+      width: 6px;
+      height: 6px;
+      background: #818cf8;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #818cf8;
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Step indicator */
+    .steps-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding: 0 8px;
+    }
+
+    .step-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-subtle);
+      transition: color 0.2s ease;
+    }
+
+    .step-item.active {
+      color: #818cf8;
+    }
+
+    .step-item.completed {
+      color: var(--success);
+    }
+
+    .step-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--card-border);
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .step-item.active .step-num {
+      background: var(--primary);
+      color: #ffffff;
+    }
+
+    .step-item.completed .step-num {
+      background: var(--success);
+      color: #ffffff;
+    }
+
+    .step-divider {
+      flex: 1;
+      height: 2px;
+      background: var(--card-border);
+      margin: 0 12px;
+    }
+
+    /* Card */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 28px;
+      box-shadow: 0 20px 30px -10px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      position: relative;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .input-field {
+      width: 100%;
+      padding: 13px 15px;
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .input-field:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+    }
+
+    .otp-input {
+      letter-spacing: 10px;
+      font-size: 24px;
+      font-weight: 700;
+      text-align: center;
+      padding: 14px 10px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 13px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+      border: none;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #ffffff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: rgba(239, 68, 68, 0.25);
+    }
+
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    /* Rate limit shield alert */
+    .shield-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--primary-light);
+      color: #a5b4fc;
+    }
+
+    .alert {
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+      margin-top: 18px;
+      display: none;
+      word-break: break-word;
+    }
+
+    .alert-info {
+      display: block;
+      background: var(--primary-light);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      color: #c7d2fe;
+    }
+
+    .alert-success {
+      display: block;
+      background: var(--success-bg);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #6ee7b7;
+    }
+
+    .alert-warning {
+      display: block;
+      background: var(--warning-bg);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: #fcd34d;
+    }
+
+    .alert-error {
+      display: block;
+      background: var(--error-bg);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #fca5a5;
+    }
+
+    /* Terminal dev hint */
+    .dev-hint {
+      margin-top: 16px;
+      background: #090d16;
+      border: 1px dashed #374151;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 12px;
+      color: #9ca3af;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dev-hint code {
+      color: #60a5fa;
+      background: rgba(96, 165, 250, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+
+    /* Quick suggestions */
+    .quick-emails {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .quick-email-btn {
+      background: none;
+      border: 1px solid #374151;
+      color: #9ca3af;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .quick-email-btn:hover {
+      border-color: #4f46e5;
+      color: #ffffff;
+    }
+
+    /* Authenticated Box */
+    .auth-box {
+      display: none;
+    }
+
+    .auth-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 16px;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4f46e5, #06b6d4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: #ffffff;
+      font-size: 16px;
+    }
+
+    .code-preview {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      color: #a5b4fc;
+      overflow-x: auto;
+      margin-bottom: 16px;
+      max-height: 120px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Security architecture drawer */
+    .security-accordion {
+      margin-top: 32px;
+      width: 100%;
+      max-width: 520px;
+      background: rgba(17, 24, 39, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .accordion-header {
+      padding: 14px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+    }
+
+    .accordion-header:hover {
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--text);
+    }
+
+    .accordion-content {
+      padding: 0 18px 18px;
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.6;
+      display: none;
+    }
+
+    .accordion-content.open {
+      display: block;
+    }
+
+    .accordion-content ul {
+      margin-left: 20px;
+      margin-top: 8px;
+    }
+
+    .accordion-content li {
+      margin-bottom: 6px;
+    }
+
+    .accordion-content code {
+      color: #a5b4fc;
+      background: #0f172a;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+  </style>
+  <!-- DevAuthKit Client SDK -->
+  <script src="/client/index.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="brand-pill">
+        <span class="dot"></span>
+        DevAuthKit Example App
+      </div>
+      <h1>Passwordless Email OTP</h1>
+      <p class="subtitle">
+        One-page setup featuring client cooldown and server-side resend rate limiting.
+      </p>
+    </div>
+
+    <!-- Step Progress Tracker -->
+    <div class="steps-nav">
+      <div class="step-item active" id="step-nav-1">
+        <span class="step-num">1</span>
+        <span>Enter Email</span>
+      </div>
+      <div class="step-divider"></div>
+      <div class="step-item" id="step-nav-2">
+        <span class="step-num">2</span>
+        <span>Verify &amp; Resend</span>
+      </div>
+      <div class="step-divider"></div>
+      <div class="step-item" id="step-nav-3">
+        <span class="step-num">3</span>
+        <span>Protected App</span>
+      </div>
+    </div>
+
+    <!-- Main Auth Card -->
+    <div class="card">
+      <!-- Step 1: Request OTP -->
+      <form id="step-email-form">
+        <div class="form-group">
+          <label for="email-input">
+            <span>Work Email</span>
+            <span class="shield-badge">🛡️ Rate Limited</span>
+          </label>
+          <input
+            type="email"
+            id="email-input"
+            class="input-field"
+            placeholder="developer@company.com"
+            required
+            autocomplete="email"
+          />
+          <div class="quick-emails">
+            <span style="font-size: 11px; color: var(--text-subtle); align-self: center;">Try:</span>
+            <button type="button" class="quick-email-btn" onclick="quickFill('alice@example.com')">alice@example.com</button>
+            <button type="button" class="quick-email-btn" onclick="quickFill('bob@company.org')">bob@company.org</button>
+          </div>
+        </div>
+
+        <button type="submit" id="send-otp-btn" class="btn btn-primary">
+          <span>Send Verification Code</span>
+          <span style="font-size: 16px;">→</span>
+        </button>
+      </form>
+
+      <!-- Step 2: Verify OTP with Resend Rate Limiting -->
+      <form id="step-otp-form" style="display: none;">
+        <div class="form-group">
+          <label>
+            <span>Verification Code</span>
+            <span id="target-email-badge" style="color: #a5b4fc; font-weight: 500;"></span>
+          </label>
+          <input
+            type="text"
+            id="otp-input"
+            class="input-field otp-input"
+            placeholder="••••••"
+            maxlength="6"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+          />
+        </div>
+
+        <button type="submit" id="verify-otp-btn" class="btn btn-primary" style="margin-bottom: 12px;">
+          Verify &amp; Sign In
+        </button>
+
+        <!-- Rate-Limited Resend Button & Navigation -->
+        <div style="display: flex; gap: 10px;">
+          <button type="button" id="change-email-btn" class="btn btn-secondary" style="flex: 1;">
+            ← Change Email
+          </button>
+          <button
+            type="button"
+            id="resend-otp-btn"
+            class="btn btn-secondary"
+            style="flex: 1.3;"
+            disabled
+          >
+            Resend in 60s
+          </button>
+        </div>
+
+        <div class="dev-hint">
+          <span>💡</span>
+          <span><strong>DevMode is active!</strong> Check your terminal console for the 6-digit OTP code.</span>
+        </div>
+      </form>
+
+      <!-- Step 3: Authenticated State -->
+      <div id="auth-panel" class="auth-box">
+        <div class="auth-header">
+          <div class="user-info">
+            <div class="avatar" id="user-avatar">U</div>
+            <div>
+              <div id="user-email-display" style="font-weight: 700; font-size: 15px;"></div>
+              <div style="font-size: 12px; color: var(--success);">● Session Active &amp; Verified</div>
+            </div>
+          </div>
+          <button type="button" id="logout-btn" class="btn btn-danger" style="width: auto; padding: 7px 14px; font-size: 12px;">
+            Log Out
+          </button>
+        </div>
+
+        <div style="margin-bottom: 12px;">
+          <label>
+            <span>JWT Access Token (stored via DevAuthClient SDK)</span>
+            <button
+              type="button"
+              id="copy-token-btn"
+              style="background: none; border: none; color: #818cf8; cursor: pointer; font-size: 11px;"
+            >
+              Copy
+            </button>
+          </label>
+          <div id="token-preview" class="code-preview"></div>
+        </div>
+
+        <!-- Protected Endpoint Test -->
+        <div style="margin-top: 18px;">
+          <button type="button" id="call-api-btn" class="btn btn-secondary" style="margin-bottom: 10px;">
+            ⚡ Call Protected Route: GET /api/dashboard
+          </button>
+          <div id="api-response" class="code-preview" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Feedback Banner -->
+      <div id="feedback-banner" class="alert"></div>
+    </div>
+
+    <!-- Security & Architecture Explanation Accordion -->
+    <div class="security-accordion">
+      <div class="accordion-header" onclick="toggleAccordion()">
+        <span>🛡️ How Resend Rate Limiting Protects Your App</span>
+        <span id="accordion-arrow">▼</span>
+      </div>
+      <div class="accordion-content" id="accordion-body">
+        <p>
+          OTP resend buttons are the <strong>#1 attack surface</strong> in modern authentication. Without strict limiting, malicious actors exploit them for:
+        </p>
+        <ul>
+          <li><strong>Email Bombing:</strong> Flooding victim inboxes with hundreds of unsolicited OTP emails.</li>
+          <li><strong>API Toll Fraud:</strong> Depleting your email provider quota (SendGrid, Postmark, Resend).</li>
+          <li><strong>Brute-Force Exploits:</strong> Generating excessive codes to widen brute-force windows.</li>
+        </ul>
+        <div style="margin-top: 12px;">
+          <strong>Two-Tier Defense Implemented in this Example:</strong>
+          <ul>
+            <li><strong>Tier 1 (Client Cooldown):</strong> A 60-second reactive timer disables the UI button immediately upon sending.</li>
+            <li><strong>Tier 2 (Server Middleware):</strong> DevAuthKit's sliding-window rate limiter enforces per-email limits (max 3/min) and per-IP limits (max 10/min), returning <code>HTTP 429 Too Many Requests</code> with <code>Retry-After</code> headers.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize DevAuthKit Client SDK
+    const auth = new DevAuthClient({
+      apiUrl: window.location.origin
+    });
+
+    // DOM Elements
+    const stepEmailForm = document.getElementById("step-email-form");
+    const stepOtpForm = document.getElementById("step-otp-form");
+    const authPanel = document.getElementById("auth-panel");
+    const emailInput = document.getElementById("email-input");
+    const otpInput = document.getElementById("otp-input");
+    const sendOtpBtn = document.getElementById("send-otp-btn");
+    const verifyOtpBtn = document.getElementById("verify-otp-btn");
+    const resendOtpBtn = document.getElementById("resend-otp-btn");
+    const changeEmailBtn = document.getElementById("change-email-btn");
+    const feedbackBanner = document.getElementById("feedback-banner");
+    const targetEmailBadge = document.getElementById("target-email-badge");
+    const userEmailDisplay = document.getElementById("user-email-display");
+    const userAvatar = document.getElementById("user-avatar");
+    const tokenPreview = document.getElementById("token-preview");
+    const callApiBtn = document.getElementById("call-api-btn");
+    const apiResponse = document.getElementById("api-response");
+    const logoutBtn = document.getElementById("logout-btn");
+    const copyTokenBtn = document.getElementById("copy-token-btn");
+
+    const stepNav1 = document.getElementById("step-nav-1");
+    const stepNav2 = document.getElementById("step-nav-2");
+    const stepNav3 = document.getElementById("step-nav-3");
+
+    let currentEmail = "";
+    let resendTimer = null;
+    let secondsLeft = 0;
+
+    function showBanner(text, type = "info") {
+      feedbackBanner.textContent = text;
+      feedbackBanner.className = `alert alert-${type}`;
+    }
+
+    function clearBanner() {
+      feedbackBanner.textContent = "";
+      feedbackBanner.className = "alert";
+      feedbackBanner.style.display = "none";
+    }
+
+    function quickFill(email) {
+      emailInput.value = email;
+      emailInput.focus();
+    }
+
+    function updateStepNav(currentStep) {
+      stepNav1.className = currentStep === 1 ? "step-item active" : currentStep > 1 ? "step-item completed" : "step-item";
+      stepNav2.className = currentStep === 2 ? "step-item active" : currentStep > 2 ? "step-item completed" : "step-item";
+      stepNav3.className = currentStep === 3 ? "step-item active" : "step-item";
+    }
+
+    // Client-side rate-limit cooldown timer
+    function startResendCooldown(seconds = 60) {
+      clearInterval(resendTimer);
+      secondsLeft = seconds;
+      resendOtpBtn.disabled = true;
+      resendOtpBtn.textContent = `Resend in ${secondsLeft}s`;
+
+      resendTimer = setInterval(() => {
+        secondsLeft--;
+        if (secondsLeft <= 0) {
+          clearInterval(resendTimer);
+          resendOtpBtn.disabled = false;
+          resendOtpBtn.textContent = "Resend Code";
+        } else {
+          resendOtpBtn.textContent = `Resend in ${secondsLeft}s`;
+        }
+      }, 1000);
+    }
+
+    // Reactive Auth State listener
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        clearInterval(resendTimer);
+        stepEmailForm.style.display = "none";
+        stepOtpForm.style.display = "none";
+        authPanel.style.display = "block";
+        updateStepNav(3);
+
+        userEmailDisplay.textContent = user.email || "Authenticated User";
+        userAvatar.textContent = (user.email ? user.email[0].toUpperCase() : "U");
+        tokenPreview.textContent = auth.getToken() || "(Session cookie established)";
+        showBanner(`Successfully signed in as ${user.email}`, "success");
+      } else {
+        authPanel.style.display = "none";
+        if (stepOtpForm.style.display !== "block") {
+          stepEmailForm.style.display = "block";
+          updateStepNav(1);
+        }
+      }
+    });
+
+    // Step 1: Submit Email to Request OTP
+    stepEmailForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const email = emailInput.value.trim();
+      if (!email) return;
+
+      currentEmail = email;
+      sendOtpBtn.disabled = true;
+      showBanner("Requesting verification code...", "info");
+
+      try {
+        const res = await auth.sendOTP(email);
+        showBanner(res.message || "Verification code sent!", "success");
+        targetEmailBadge.textContent = `Sent to: ${email}`;
+
+        stepEmailForm.style.display = "none";
+        stepOtpForm.style.display = "block";
+        updateStepNav(2);
+        otpInput.value = "";
+        otpInput.focus();
+
+        // Start 60-second UI rate-limit cooldown
+        startResendCooldown(60);
+      } catch (err) {
+        const retryAfter = err.retryAfterSeconds;
+        if (retryAfter) {
+          showBanner(`⚠️ Server Rate Limit Active: Too many requests. Please wait ${retryAfter}s.`, "warning");
+        } else {
+          showBanner(err.message || "Failed to send verification code.", "error");
+        }
+      } finally {
+        sendOtpBtn.disabled = false;
+      }
+    };
+
+    // Step 2: Resend OTP (with Rate Limiting Protection)
+    resendOtpBtn.onclick = async () => {
+      if (resendOtpBtn.disabled || !currentEmail) return;
+
+      resendOtpBtn.disabled = true;
+      resendOtpBtn.textContent = "Sending...";
+      showBanner("Requesting fresh OTP code...", "info");
+
+      try {
+        const res = await auth.sendOTP(currentEmail);
+        showBanner("Fresh verification code sent! Check your terminal console.", "success");
+        // Reset 60s client cooldown on success
+        startResendCooldown(60);
+      } catch (err) {
+        // Handle Server Rate Limiting (HTTP 429)
+        const retryAfter = err.retryAfterSeconds || (err.status === 429 ? 60 : null);
+        if (retryAfter) {
+          showBanner(
+            `⚠️ Server Rate Limit Enforced: You exceeded the allowed resend rate. Cooldown locked for ${retryAfter} seconds.`,
+            "warning"
+          );
+          startResendCooldown(retryAfter);
+        } else {
+          showBanner(err.message || "Failed to resend verification code.", "error");
+          resendOtpBtn.disabled = false;
+          resendOtpBtn.textContent = "Resend Code";
+        }
+      }
+    };
+
+    // Step 2: Verify OTP
+    stepOtpForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const otp = otpInput.value.trim();
+      if (!otp || otp.length < 6) {
+        showBanner("Please enter the complete 6-digit verification code.", "error");
+        return;
+      }
+
+      verifyOtpBtn.disabled = true;
+      showBanner("Verifying code...", "info");
+
+      try {
+        await auth.verifyOTP(currentEmail, otp);
+        showBanner("Authentication successful!", "success");
+      } catch (err) {
+        const attemptsMsg = err.attemptsRemaining !== undefined ? ` (${err.attemptsRemaining} attempts left)` : "";
+        showBanner(`${err.message}${attemptsMsg}`, "error");
+        otpInput.focus();
+      } finally {
+        verifyOtpBtn.disabled = false;
+      }
+    };
+
+    // Auto-submit OTP when 6 digits are typed
+    otpInput.addEventListener("input", (e) => {
+      const val = e.target.value.replace(/\D/g, "");
+      e.target.value = val;
+      if (val.length === 6) {
+        stepOtpForm.dispatchEvent(new Event("submit"));
+      }
+    });
+
+    // Navigate back to change email
+    changeEmailBtn.onclick = () => {
+      clearInterval(resendTimer);
+      otpInput.value = "";
+      stepOtpForm.style.display = "none";
+      stepEmailForm.style.display = "block";
+      updateStepNav(1);
+      clearBanner();
+    };
+
+    // Call Protected API Endpoint using auth.fetch()
+    callApiBtn.onclick = async () => {
+      callApiBtn.disabled = true;
+      apiResponse.style.display = "block";
+      apiResponse.textContent = "Fetching /api/dashboard with Bearer JWT...";
+
+      try {
+        const startTime = Date.now();
+        const res = await auth.fetch("/api/dashboard");
+        const elapsed = Date.now() - startTime;
+        const data = await res.json();
+
+        apiResponse.textContent = `// HTTP ${res.status} OK (${elapsed}ms)\n` + JSON.stringify(data, null, 2);
+        showBanner("Protected route accessed successfully!", "success");
+      } catch (err) {
+        apiResponse.textContent = `// Request Failed:\n${err.message}`;
+        showBanner("Failed to call protected route: " + err.message, "error");
+      } finally {
+        callApiBtn.disabled = false;
+      }
+    };
+
+    // Copy Token to Clipboard
+    copyTokenBtn.onclick = () => {
+      const token = auth.getToken();
+      if (token) {
+        navigator.clipboard.writeText(token);
+        copyTokenBtn.textContent = "Copied!";
+        setTimeout(() => { copyTokenBtn.textContent = "Copy"; }, 2000);
+      }
+    };
+
+    // Logout
+    logoutBtn.onclick = async () => {
+      await auth.logout();
+      currentEmail = "";
+      otpInput.value = "";
+      apiResponse.style.display = "none";
+      showBanner("You have signed out.", "info");
+    };
+
+    // Accordion Toggle
+    function toggleAccordion() {
+      const body = document.getElementById("accordion-body");
+      const arrow = document.getElementById("accordion-arrow");
+      const isOpen = body.classList.toggle("open");
+      arrow.textContent = isOpen ? "▲" : "▼";
+    }
+  </script>
+</body>
+</html>
+

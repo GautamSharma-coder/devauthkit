@@ -16,32 +16,17 @@ class SsoError extends Error {
   }
 }
 
-/**
- * Deflate data using raw deflate algorithm (no zlib headers) for SAML HTTP-Redirect binding
- * @param {string|Buffer} strOrBuf
- * @returns {Buffer}
- */
-function deflateRaw(strOrBuf) {
-  try {
-    const zlib = require("zlib");
-    return zlib.deflateRawSync(typeof strOrBuf === "string" ? Buffer.from(strOrBuf, "utf8") : strOrBuf);
-  } catch {
-    return Buffer.from(strOrBuf, "utf8");
+function stripXmlComments(xmlString) {
+  let xml = String(xmlString || "");
+  while (xml.includes("<!--")) {
+    const commentStart = xml.indexOf("<!--");
+    const commentEnd = xml.indexOf("-->", commentStart + 4);
+    if (commentEnd === -1) {
+      throw new SsoError("Malformed XML comment in SAML response", "ERR_MALFORMED_XML");
+    }
+    xml = xml.slice(0, commentStart) + xml.slice(commentEnd + 3);
   }
-}
-
-/**
- * Inflate raw deflated data
- * @param {Buffer} buf
- * @returns {Buffer}
- */
-function inflateRaw(buf) {
-  try {
-    const zlib = require("zlib");
-    return zlib.inflateRawSync(buf);
-  } catch {
-    return buf;
-  }
+  return xml;
 }
 
 /**
@@ -73,11 +58,17 @@ function formatX509Cert(rawCert) {
 function canonicalizeXml(xmlString) {
   if (!xmlString || typeof xmlString !== "string") return "";
 
-  // 1. Remove XML declaration (<?xml ... ?>) and DOCTYPE comments
-  let xml = xmlString
-    .replace(/<\?xml[^>]*\?>/gi, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .trim();
+  // 1. Remove XML declaration (<?xml ... ?>) and DOCTYPE comments without ReDoS-vulnerable regexes
+  let xml = xmlString;
+  const xmlDeclStart = xml.toLowerCase().indexOf("<?xml");
+  if (xmlDeclStart !== -1) {
+    const xmlDeclEnd = xml.indexOf("?>", xmlDeclStart + 5);
+    if (xmlDeclEnd !== -1) {
+      xml = xml.slice(0, xmlDeclStart) + xml.slice(xmlDeclEnd + 2);
+    }
+  }
+
+  xml = stripXmlComments(xml).trim();
 
   // 2. Normalize Windows/Mac line endings to \n
   xml = xml.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -247,10 +238,15 @@ async function verifySamlResponse({
     }
   }
 
-  // 2. XXE (XML External Entity) Protection
+  // 2. XXE (XML External Entity) & Comment-Injection Protection
   if (/<!DOCTYPE/i.test(rawXml) || /<!ENTITY/i.test(rawXml)) {
     throw new SsoError("XML DOCTYPE and ENTITY declarations are forbidden for security", "ERR_XXE_DETECTED");
   }
+  if (/<!\[CDATA\[/i.test(rawXml)) {
+    throw new SsoError("XML CDATA sections are forbidden in SAML responses", "ERR_XXE_DETECTED");
+  }
+  // Strip all XML comments before any element/attribute/signature parsing to prevent comment-injection spoofing
+  rawXml = stripXmlComments(rawXml);
 
   // 3. Extract Assertion element
   const assertionMatch = rawXml.match(/<(?:[a-zA-Z0-9_]+:)?Assertion\b[\s\S]*?<\/(?:[a-zA-Z0-9_]+:)?Assertion>/i);
@@ -259,35 +255,24 @@ async function verifySamlResponse({
   }
   const assertionXml = assertionMatch[0];
 
-  // XML Signature Wrapping (XSW) Defense: Ensure only one Assertion is present
+  // XML Signature Wrapping (XSW) Defense: Ensure only one Assertion and one Signature are present
   const allAssertions = rawXml.match(/<(?:[a-zA-Z0-9_]+:)?Assertion\b/gi) || [];
   if (allAssertions.length > 1) {
     throw new SsoError("Multiple <Assertion> elements detected in SAML response (potential XSW attack)", "ERR_XSW_DETECTED");
   }
+  const allSignatures = rawXml.match(/<(?:[a-zA-Z0-9_]+:)?Signature\b/gi) || [];
+  if (allSignatures.length > 1) {
+    throw new SsoError("Multiple <Signature> elements detected in SAML response (potential XSW attack)", "ERR_XSW_DETECTED");
+  }
 
-  // 4. Extract Assertion ID
-  const assertionId = getTagAttribute(assertionXml, "Assertion", "ID") ||
-    getTagAttribute(rawXml, "Response", "ID");
+  // 4. Extract Assertion ID & Response ID
+  const responseId = getTagAttribute(rawXml, "Response", "ID");
+  const assertionId = getTagAttribute(assertionXml, "Assertion", "ID") || responseId;
   if (!assertionId) {
     throw new SsoError("SAML Assertion is missing an ID attribute", "ERR_MISSING_ASSERTION_ID");
   }
 
-  // 5. Anti-Replay Assertion ID check
-  if (replayStore) {
-    const isReplayed = typeof replayStore.isAssertionReplayed === "function"
-      ? await replayStore.isAssertionReplayed(assertionId)
-      : (typeof replayStore.isUsed === "function"
-        ? await replayStore.isUsed(assertionId)
-        : false);
-    if (isReplayed) {
-      throw new SsoError(`SAML Assertion ID '${assertionId}' has already been processed`, "ERR_SAML_ASSERTION_REPLAYED");
-    }
-    if (typeof replayStore.recordAssertion === "function") {
-      await replayStore.recordAssertion(assertionId, 10 * 60); // 10 minutes TTL
-    } else if (typeof replayStore.record === "function") {
-      await replayStore.record(assertionId, 10 * 60);
-    }
-  }
+  // 5. Time Validity & Conditions (checked after signature below or pre-validated safely without side effects)
 
   // 6. Time Validity & Conditions
   const notBeforeStr = getTagAttribute(assertionXml, "Conditions", "NotBefore");
@@ -317,9 +302,11 @@ async function verifySamlResponse({
   }
 
   // 8. Signature & Certificate Verification
-  const signedInfoMatch = rawXml.match(/<(?:[a-zA-Z0-9_]+:)?SignedInfo\b[\s\S]*?<\/(?:[a-zA-Z0-9_]+:)?SignedInfo>/i);
-  const signatureValueMatch = rawXml.match(/<(?:[a-zA-Z0-9_]+:)?SignatureValue\b[^>]*>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?SignatureValue>/i);
-  const digestValueMatch = rawXml.match(/<(?:[a-zA-Z0-9_]+:)?DigestValue\b[^>]*>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?DigestValue>/i);
+  const signatureBlockMatch = rawXml.match(/<(?:[a-zA-Z0-9_]+:)?Signature\b[\s\S]*?<\/(?:[a-zA-Z0-9_]+:)?Signature>/i);
+  const signatureXml = signatureBlockMatch ? signatureBlockMatch[0] : "";
+  const signedInfoMatch = signatureXml.match(/<(?:[a-zA-Z0-9_]+:)?SignedInfo\b[\s\S]*?<\/(?:[a-zA-Z0-9_]+:)?SignedInfo>/i);
+  const signatureValueMatch = signatureXml.match(/<(?:[a-zA-Z0-9_]+:)?SignatureValue\b[^>]*>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?SignatureValue>/i);
+  const digestValueMatch = signedInfoMatch?.[0]?.match(/<(?:[a-zA-Z0-9_]+:)?DigestValue\b[^>]*>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?DigestValue>/i);
 
   if (!signedInfoMatch || !signatureValueMatch || !digestValueMatch) {
     throw new SsoError("SAML Response is unsigned or missing XML digital signature elements", "ERR_MISSING_SIGNATURE");
@@ -329,25 +316,42 @@ async function verifySamlResponse({
   const signatureValue = signatureValueMatch[1].replace(/[\r\n\s]/g, "");
   const expectedDigest = digestValueMatch[1].replace(/[\r\n\s]/g, "");
 
+  // Validate Reference URI binding inside SignedInfo
+  const referenceUriMatch = rawSignedInfo.match(/<(?:[a-zA-Z0-9_]+:)?Reference\b[^>]*\bURI="([^"]*)"/i);
+  const referenceUri = referenceUriMatch ? referenceUriMatch[1] : null;
+  const targetsAssertion = referenceUri === `#${assertionId}`;
+  const targetsResponse = referenceUri === "" || (responseId && referenceUri === `#${responseId}`);
+  if (referenceUri !== null && !targetsAssertion && !targetsResponse) {
+    throw new SsoError(`SAML Reference URI '${referenceUri}' does not match Assertion or Response ID`, "ERR_SAML_REFERENCE_MISMATCH");
+  }
+
   // Detect signature algorithm
   const sigMethodMatch = rawSignedInfo.match(/SignatureMethod\s+Algorithm="([^"]*)"/i);
   const sigAlgorithm = sigMethodMatch && sigMethodMatch[1].includes("sha1") ? "RSA-SHA1" : "RSA-SHA256";
 
   // Check Digest of target element
   const canonicalSignedInfo = canonicalizeXml(rawSignedInfo);
-  // Remove <Signature> element from Assertion to compute enveloped digest
-  const assertionWithoutSignature = assertionXml.replace(/<(?:[a-zA-Z0-9_]+:)?Signature\b[\s\S]*?<\/(?:[a-zA-Z0-9_]+:)?Signature>/i, "");
-  const canonicalAssertion = canonicalizeXml(assertionWithoutSignature);
-  const computedDigest = computeXmlDigest(canonicalAssertion, sigAlgorithm);
+  const sigRemoveRegex = /<(?:[a-zA-Z0-9_]+:)?Signature\b[\s\S]*?<\/(?:[a-zA-Z0-9_]+:)?Signature>/gi;
 
-  if (computedDigest !== expectedDigest) {
-    // If enveloped assertion digest does not match, check response-level signed digest
-    const responseWithoutSignature = rawXml.replace(/<(?:[a-zA-Z0-9_]+:)?Signature\b[\s\S]*?<\/(?:[a-zA-Z0-9_]+:)?Signature>/i, "");
+  let digestMatched = false;
+  if (targetsAssertion || referenceUri === null) {
+    const assertionWithoutSignature = assertionXml.replace(sigRemoveRegex, "");
+    const canonicalAssertion = canonicalizeXml(assertionWithoutSignature);
+    const computedDigest = computeXmlDigest(canonicalAssertion, sigAlgorithm);
+    if (constantTimeEqual(computedDigest, expectedDigest)) {
+      digestMatched = true;
+    }
+  }
+  if (!digestMatched && (targetsResponse || referenceUri === null)) {
+    const responseWithoutSignature = rawXml.replace(sigRemoveRegex, "");
     const canonicalResponse = canonicalizeXml(responseWithoutSignature);
     const computedResponseDigest = computeXmlDigest(canonicalResponse, sigAlgorithm);
-    if (computedResponseDigest !== expectedDigest) {
-      throw new SsoError("SAML XML DigestValue mismatch (tampered payload or canonicalization mismatch)", "ERR_SAML_DIGEST_MISMATCH");
+    if (constantTimeEqual(computedResponseDigest, expectedDigest)) {
+      digestMatched = true;
     }
+  }
+  if (!digestMatched) {
+    throw new SsoError("SAML XML DigestValue mismatch (tampered payload or canonicalization mismatch)", "ERR_SAML_DIGEST_MISMATCH");
   }
 
   // Verify RSA signature against available trusted certificates (supporting dual rolling certificates)
@@ -366,6 +370,23 @@ async function verifySamlResponse({
 
   if (!signatureValid) {
     throw new SsoError("SAML Signature verification failed against trusted IdP certificates", "ERR_SAML_SIGNATURE_MISMATCH");
+  }
+
+  // Anti-Replay Assertion ID check (only after cryptographic signature verification succeeds)
+  if (replayStore) {
+    const isReplayed = typeof replayStore.isAssertionReplayed === "function"
+      ? await replayStore.isAssertionReplayed(assertionId)
+      : (typeof replayStore.isUsed === "function"
+        ? await replayStore.isUsed(assertionId)
+        : false);
+    if (isReplayed) {
+      throw new SsoError(`SAML Assertion ID '${assertionId}' has already been processed`, "ERR_SAML_ASSERTION_REPLAYED");
+    }
+    if (typeof replayStore.recordAssertion === "function") {
+      await replayStore.recordAssertion(assertionId, 10 * 60); // 10 minutes TTL
+    } else if (typeof replayStore.record === "function") {
+      await replayStore.record(assertionId, 10 * 60);
+    }
   }
 
   // 9. Extract Subject NameID (User identifier / Email)

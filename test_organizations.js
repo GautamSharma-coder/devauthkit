@@ -493,14 +493,14 @@ async function runOrganizationTests() {
     if (typeof server.closeAllConnections === "function") {
       server.closeAllConnections();
     }
-    server.close();
+    await new Promise((resolve) => server.close(resolve));
   }
 
   console.log(`\n==============================================`);
   console.log(`📊 Organization Test Summary: ${passed}/${total} assertions passed`);
   console.log(`==============================================\n`);
 
-  process.exit(passed === total ? 0 : 1);
+  process.exitCode = passed === total ? 0 : 1;
 }
 runOrganizationTests().catch((err) => {
   console.error("❌ Test crashed:", err);

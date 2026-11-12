@@ -221,7 +221,10 @@
         <input type="text" id="otp" placeholder="123456" maxlength="6" />
       </div>
       <button type="submit" id="verify-btn">Verify &amp; Sign In</button>
-      <button type="button" class="secondary-btn" id="back-btn">← Change Email</button>
+      <div style="display: flex; gap: 10px; margin-top: 10px;">
+        <button type="button" class="secondary-btn" id="back-btn" style="flex: 1; margin-top: 0;">← Change Email</button>
+        <button type="button" class="secondary-btn" id="resend-btn" style="flex: 1; margin-top: 0;" disabled>Resend in 60s</button>
+      </div>
     </form>
 
     <div id="message"></div>
@@ -249,12 +252,34 @@
     const sendBtn = document.getElementById("send-btn");
     const verifyBtn = document.getElementById("verify-btn");
     const backBtn = document.getElementById("back-btn");
+    const resendBtn = document.getElementById("resend-btn");
     const messageEl = document.getElementById("message");
     const authPanel = document.getElementById("auth-panel");
     const tokenBox = document.getElementById("token-box");
     const testProfileBtn = document.getElementById("test-profile-btn");
     const testDashboardBtn = document.getElementById("test-dashboard-btn");
     const logoutBtn = document.getElementById("logout-btn");
+
+    let countdownInterval = null;
+    let secondsLeft = 0;
+
+    function startResendCooldown(seconds = 60) {
+      clearInterval(countdownInterval);
+      secondsLeft = seconds;
+      resendBtn.disabled = true;
+      resendBtn.textContent = `Resend in ${secondsLeft}s`;
+
+      countdownInterval = setInterval(() => {
+        secondsLeft--;
+        if (secondsLeft <= 0) {
+          clearInterval(countdownInterval);
+          resendBtn.disabled = false;
+          resendBtn.textContent = "Resend Code";
+        } else {
+          resendBtn.textContent = `Resend in ${secondsLeft}s`;
+        }
+      }, 1000);
+    }
 
     function showMessage(text, type = "info") {
       messageEl.textContent = text;
@@ -264,6 +289,7 @@
     // Reactive State listener using the Client SDK
     auth.onAuthStateChanged((user) => {
       if (user) {
+        clearInterval(countdownInterval);
         authPanel.style.display = "block";
         requestForm.style.display = "none";
         verifyForm.style.display = "none";
@@ -288,11 +314,37 @@
         showMessage(data.message + (data.devMode ? " (Check terminal console for OTP code!)" : ""), "success");
         requestForm.style.display = "none";
         verifyForm.style.display = "block";
+        startResendCooldown(60);
         document.getElementById("otp").focus();
       } catch (err) {
         showMessage(err.message, "error");
       } finally {
         sendBtn.disabled = false;
+      }
+    };
+
+    // Resend OTP with Rate Limiting
+    resendBtn.onclick = async () => {
+      if (resendBtn.disabled) return;
+      const email = document.getElementById("email").value.trim();
+      resendBtn.disabled = true;
+      resendBtn.textContent = "Sending...";
+      showMessage("Resending OTP code...", "info");
+
+      try {
+        const data = await auth.sendOTP(email);
+        showMessage(data.message + (data.devMode ? " (Check terminal console for new OTP!)" : ""), "success");
+        startResendCooldown(60);
+      } catch (err) {
+        const retryAfter = err.retryAfterSeconds || (err.status === 429 ? 60 : null);
+        if (retryAfter) {
+          showMessage(`⚠️ Rate limit active: ${err.message}`, "error");
+          startResendCooldown(retryAfter);
+        } else {
+          showMessage(err.message, "error");
+          resendBtn.disabled = false;
+          resendBtn.textContent = "Resend Code";
+        }
       }
     };
 
@@ -316,6 +368,8 @@
     };
 
     backBtn.onclick = () => {
+      clearInterval(countdownInterval);
+      document.getElementById("otp").value = "";
       verifyForm.style.display = "none";
       requestForm.style.display = "block";
     };

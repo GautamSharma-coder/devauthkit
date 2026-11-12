@@ -16,6 +16,15 @@ const {
   parseScimPatchOperations
 } = require("../core/scimService");
 const { emitWebhookEvent } = require("../core/webhookDispatcher");
+const defaultRefreshTokenStore = require("../stores/defaultRefreshTokenStore");
+const { defaultSessionService } = require("../core/sessionService");
+const { getActorId, isSystemAdmin, authorizeOrgAdmin } = require("../utils/accessControl");
+
+function sanitizeDirectory(dir) {
+  if (!dir) return dir;
+  const { bearerTokenHash, ...safe } = dir;
+  return safe;
+}
 
 function getSsoStore() {
   const store = config.get("ssoStore") || config.get("sso")?.store;
@@ -34,7 +43,7 @@ function getUserAdapter() {
 }
 
 function getRefreshTokenStore() {
-  return config.get("refreshTokenStore") || null;
+  return config.get("refreshTokenStore") || defaultRefreshTokenStore;
 }
 
 // ==========================================
@@ -90,6 +99,10 @@ async function createDirectory(req, res) {
     if (!orgId) {
       return res.status(400).json({ error: "orgId is required to create a SCIM directory" });
     }
+    const authz = await authorizeOrgAdmin(req, orgId);
+    if (!authz.allowed) {
+      return res.status(authz.status).json({ error: authz.error });
+    }
 
     const bearerToken = generateScimBearerToken();
     const bearerTokenHash = await hashScimBearerToken(bearerToken);
@@ -101,14 +114,14 @@ async function createDirectory(req, res) {
     });
 
     emitWebhookEvent("scim.directory_created", {
-      directory,
+      directory: sanitizeDirectory(directory),
       orgId,
       actor: req.user
     });
 
     return res.status(201).json({
       success: true,
-      directory,
+      directory: sanitizeDirectory(directory),
       bearerToken // Returned ONLY once upon creation
     });
   } catch (err) {
@@ -122,9 +135,34 @@ async function createDirectory(req, res) {
 async function listDirectories(req, res) {
   try {
     const store = getSsoStore();
-    const orgId = req.query.orgId || req.params.orgId || req.org?.id;
+    const orgId = req.query.orgId || req.params.orgId || req.org?.id || req.user?.org_id;
+    if (!isSystemAdmin(req.user)) {
+      if (orgId) {
+        const authz = await authorizeOrgAdmin(req, orgId);
+        if (!authz.allowed) {
+          return res.status(authz.status).json({ error: authz.error });
+        }
+      } else {
+        const orgStore = getOrgStore();
+        const actorId = getActorId(req.user);
+        if (!orgStore || !actorId) {
+          return res.status(403).json({ error: "Forbidden: Administrator privileges required" });
+        }
+        const userOrgs = await orgStore.listUserOrgs(actorId);
+        const adminOrgIds = new Set(
+          userOrgs
+            .filter((o) => o.role === "owner" || o.role === "admin")
+            .map((o) => String(o.id))
+        );
+        const allDirs = await store.listDirectories();
+        return res.json({
+          success: true,
+          directories: allDirs.filter((d) => adminOrgIds.has(String(d.orgId))).map(sanitizeDirectory)
+        });
+      }
+    }
     const directories = await store.listDirectories(orgId);
-    return res.json({ success: true, directories });
+    return res.json({ success: true, directories: directories.map(sanitizeDirectory) });
   } catch (err) {
     return res.status(500).json({ error: err.message || "Failed to list SCIM directories" });
   }
@@ -140,7 +178,11 @@ async function getDirectory(req, res) {
     if (!directory) {
       return res.status(404).json({ error: "SCIM directory not found" });
     }
-    return res.json({ success: true, directory });
+    const authz = await authorizeOrgAdmin(req, directory.orgId);
+    if (!authz.allowed) {
+      return res.status(authz.status).json({ error: authz.error });
+    }
+    return res.json({ success: true, directory: sanitizeDirectory(directory) });
   } catch (err) {
     return res.status(500).json({ error: err.message || "Failed to get SCIM directory" });
   }
@@ -156,6 +198,10 @@ async function rotateToken(req, res) {
     if (!directory) {
       return res.status(404).json({ error: "SCIM directory not found" });
     }
+    const authz = await authorizeOrgAdmin(req, directory.orgId);
+    if (!authz.allowed) {
+      return res.status(authz.status).json({ error: authz.error });
+    }
 
     const newBearerToken = generateScimBearerToken();
     const bearerTokenHash = await hashScimBearerToken(newBearerToken);
@@ -170,7 +216,7 @@ async function rotateToken(req, res) {
 
     return res.json({
       success: true,
-      directory: updated,
+      directory: sanitizeDirectory(updated),
       bearerToken: newBearerToken
     });
   } catch (err) {
@@ -187,6 +233,10 @@ async function deleteDirectory(req, res) {
     const directory = await store.getDirectory(req.params.id);
     if (!directory) {
       return res.status(404).json({ error: "SCIM directory not found" });
+    }
+    const authz = await authorizeOrgAdmin(req, directory.orgId);
+    if (!authz.allowed) {
+      return res.status(authz.status).json({ error: authz.error });
     }
 
     await store.deleteDirectory(req.params.id);
@@ -403,7 +453,20 @@ async function patchUser(req, res) {
       return res.status(404).json(formatScimError(404, `User '${req.params.id}' not found`));
     }
 
-    const patch = parseScimPatchOperations(req.body?.Operations);
+    let patch;
+    if (Array.isArray(req.body?.Operations)) {
+      patch = parseScimPatchOperations(req.body.Operations);
+    } else {
+      // Support SCIM PUT full-resource replacement
+      patch = {
+        updates: {},
+        addMembers: [],
+        removeMembers: [],
+        ...(typeof req.body?.active === "boolean" ? { active: req.body.active } : {})
+      };
+      if (typeof req.body?.displayName === "string") patch.updates.name = req.body.displayName;
+      if (typeof req.body?.userName === "string") patch.updates.userName = req.body.userName;
+    }
     const updates = { attributes: { ...mapping.attributes } };
 
     // Handle deprovisioning / activation toggle
@@ -423,10 +486,14 @@ async function patchUser(req, res) {
           }
         }
 
-        // 2. Invalidate all active sessions in refreshTokenStore
+        // 2. Invalidate all active sessions in refreshTokenStore and sessionService
         const refreshTokenStore = getRefreshTokenStore();
         if (refreshTokenStore && typeof refreshTokenStore.revokeAll === "function") {
           await refreshTokenStore.revokeAll(mapping.userId);
+        }
+        const sessionService = config.get("sessionService") || defaultSessionService;
+        if (sessionService && typeof sessionService.revokeAllUserSessions === "function") {
+          sessionService.revokeAllUserSessions(mapping.userId);
         }
 
         // 3. Emit deprovisioning webhook events
@@ -499,6 +566,10 @@ async function deleteUser(req, res) {
     const refreshTokenStore = getRefreshTokenStore();
     if (refreshTokenStore && typeof refreshTokenStore.revokeAll === "function") {
       await refreshTokenStore.revokeAll(mapping.userId);
+    }
+    const sessionService = config.get("sessionService") || defaultSessionService;
+    if (sessionService && typeof sessionService.revokeAllUserSessions === "function") {
+      sessionService.revokeAllUserSessions(mapping.userId);
     }
 
     await store.deleteScimUserMapping(mapping.id);

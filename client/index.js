@@ -126,9 +126,14 @@
      * @param {Object} [options.customFetch] - Optional custom fetch implementation
      */
     constructor(options = {}) {
-      this.apiUrl = (options.apiUrl || "").replace(/\/+$/, "");
+      let rawApiUrl = options.apiUrl || "";
+      while (rawApiUrl.endsWith("/")) {
+        rawApiUrl = rawApiUrl.slice(0, -1);
+      }
+      this.apiUrl = rawApiUrl;
       this.apiPrefix = options.apiPrefix || "/auth";
       this.tokenKey = options.tokenKey || "devauth_token";
+      this.storagePrefix = options.storagePrefix || `${this.tokenKey}_`;
       this.userKey = options.userKey || "devauth_user";
       this.orgKey = options.orgKey || "devauth_org";
       this.tokenTypeKey = `${this.tokenKey}_type`;
@@ -245,7 +250,12 @@
 
       const data = await this._safeJson(res);
       if (!res.ok) {
-        throw new Error(data.error || "Failed to send OTP");
+        const error = new Error(data.error || "Failed to send OTP");
+        if (data.retryAfterSeconds !== undefined) {
+          error.retryAfterSeconds = data.retryAfterSeconds;
+        }
+        error.status = res.status;
+        throw error;
       }
       return data;
     }
@@ -731,6 +741,9 @@
       if (res.status === 401 && dpopNonceHeader && isDPoP) {
         try {
           const retryHeaders = new Headers(options.headers || {});
+          if (activeOrg?.id && !retryHeaders.has("x-organization-id") && !retryHeaders.has("x-org-id")) {
+            retryHeaders.set("x-organization-id", activeOrg.id);
+          }
           if (token && !retryHeaders.has("Authorization")) {
             retryHeaders.set("Authorization", `DPoP ${token}`);
           }
@@ -745,6 +758,10 @@
         try {
           await this.refresh();
           const refreshedHeaders = new Headers(options.headers || {});
+          const refreshedOrg = this.getActiveOrg();
+          if (refreshedOrg?.id && !refreshedHeaders.has("x-organization-id") && !refreshedHeaders.has("x-org-id")) {
+            refreshedHeaders.set("x-organization-id", refreshedOrg.id);
+          }
           const refreshedToken = this.getToken();
           const refreshedIsDPoP = this.isDPoPBound();
           if (refreshedToken && !refreshedHeaders.has("Authorization")) {

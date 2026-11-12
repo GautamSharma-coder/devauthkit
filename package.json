@@ -1,9 +1,12 @@
 {
   "name": "devauthkit",
-  "version": "1.10.4",
+  "version": "1.11.0",
   "description": "A plug-and-play authentication service for developers",
   "main": "index.js",
   "types": "./index.d.ts",
+  "bin": {
+    "devauthkit": "./bin/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./index.d.ts",
@@ -12,6 +15,10 @@
     "./client": {
       "types": "./client/index.d.ts",
       "default": "./client/index.js"
+    },
+    "./client/react": {
+      "types": "./client/react/index.d.ts",
+      "default": "./client/react/index.js"
     },
     "./adapters/prisma": {
       "types": "./server/adapters/prisma.d.ts",
@@ -149,6 +156,8 @@
   "files": [
     "server",
     "client",
+    "bin",
+    "examples",
     "index.js",
     "index.d.ts",
     "README.md",
@@ -157,8 +166,9 @@
   ],
   "scripts": {
     "start": "node example.js",
+    "example:otp": "node examples/email-otp-flow/server.js",
     "dev": "nodemon example.js",
-    "test": "node test_auth.js && node test_redis_refresh_token_store.js && node test_mfa.js && node test_passkeys.js && node test_cloudflare.js && node test_dpop.js && node test_organizations.js && node test_webhooks.js && node test_sso_scim.js && node test_v2_features.js",
+    "test": "node test_security_regressions.js && node test_react_components.js && node test_cli.js && node test_example_otp.js && node test_passkeys.js && node test_dpop.js && node test_auth.js && node test_redis_refresh_token_store.js && node test_mfa.js && node test_cloudflare.js && node test_organizations.js && node test_webhooks.js && node test_sso_scim.js && node test_v2_features.js",
     "prepublishOnly": "npm test"
   },
   "repository": {

@@ -17,6 +17,28 @@ const MemoryRateLimitStore = require("../stores/memoryRateLimitStore");
 const { sha256Hex, signJwt, verifyJwt } = require("../utils/webCrypto");
 const validateOAuthProviders = require("../utils/oauthProviderConfig");
 const validatePasskeyConfig = require("../utils/passkeyConfig");
+const { isUserBlocked, getUserEpoch } = require("../controllers/userManagementController");
+const { isImpersonationRevoked } = require("../controllers/impersonationController");
+
+const HONO_IMPERSONATION_RESTRICTED_PATHS = [
+  "/api-keys",
+  "/impersonate",
+  "/block",
+  "/unblock",
+  "/mfa",
+  "/passkeys",
+  "/oauth",
+  "/sessions",
+  "/webhooks",
+  "/sso",
+  "/scim"
+];
+
+const HONO_API_KEY_RESTRICTED_PATHS = [
+  ...HONO_IMPERSONATION_RESTRICTED_PATHS,
+  "/end-impersonation",
+  "/orgs"
+];
 
 const rateLimitStore = new MemoryRateLimitStore();
 const OAUTH_SESSION_COOKIE = "devauthkit_oauth_state";
@@ -37,6 +59,8 @@ function createRequest(c, body, session) {
   return {
     body,
     method: c.req.method,
+    url: url.pathname + url.search,
+    originalUrl: c.req.url,
     query: Object.fromEntries(url.searchParams.entries()),
     headers: Object.fromEntries(c.req.raw.headers.entries()),
     cookies: c.req.header("cookie") ? { [OAUTH_SESSION_COOKIE]: getCookie(c, OAUTH_SESSION_COOKIE) } : {},
@@ -50,7 +74,11 @@ function createRequest(c, body, session) {
     orgMember: c.get("orgMember"),
     scimDirectory: c.get("scimDirectory"),
     get(name) {
-      return c.req.header(name);
+      const value = c.req.header(name);
+      if (!value && typeof name === "string" && name.toLowerCase() === "host") {
+        return url.host;
+      }
+      return value;
     }
   };
 }
@@ -213,12 +241,50 @@ function makeRateLimit(name) {
 function requireAuth() {
   return async (c, next) => {
     const authorization = c.req.header("authorization");
+    const xApiKey = c.req.header("x-api-key");
+    const rawApiKey = authorization?.startsWith("Bearer dak_")
+      ? authorization.slice(7)
+      : (xApiKey?.startsWith("dak_") ? xApiKey : null);
+
+    if (rawApiKey) {
+      const apiKeyService = config.get("apiKeyService");
+      const keyRecord = apiKeyService ? await apiKeyService.verifyKey(rawApiKey) : null;
+      if (!keyRecord) {
+        return c.json({ error: "Unauthorized: Invalid or revoked API key" }, 401);
+      }
+      if (keyRecord.userId && isUserBlocked(keyRecord.userId)) {
+        return c.json({
+          error: "account_suspended",
+          message: "Account has been suspended by an administrator"
+        }, 403);
+      }
+      const reqPath = new URL(c.req.url).pathname.toLowerCase();
+      if (HONO_API_KEY_RESTRICTED_PATHS.some((prefix) => reqPath.includes(prefix))) {
+        return c.json({
+          error: "api_key_restricted",
+          message: "API keys cannot access user credential or administrative endpoints"
+        }, 403);
+      }
+      c.set("apiKey", keyRecord);
+      c.set("user", {
+        id: keyRecord.userId,
+        org_id: keyRecord.orgId || null,
+        role: "apiKey",
+        isApiKey: true,
+        scopes: keyRecord.scopes,
+        apiKeyId: keyRecord.id
+      });
+      return next();
+    }
+
     let token = null;
     if (authorization) {
       if (authorization.startsWith("Bearer ")) {
         token = authorization.slice(7);
       } else if (authorization.startsWith("DPoP ")) {
         token = authorization.slice(5);
+      } else {
+        return c.json({ error: "Unauthorized: Malformed token header" }, 401);
       }
     }
     const cookieName = config.get("cookieName") || "devauth_token";
@@ -231,6 +297,21 @@ function requireAuth() {
     } catch {
       return c.json({ error: `Unauthorized: Invalid or expired ${authorization ? "token" : "cookie token"}` }, 401);
     }
+
+    const userId = user.id ?? user.sub;
+    if (userId && isUserBlocked(userId)) {
+      return c.json({
+        error: "account_suspended",
+        message: "Account has been suspended by an administrator"
+      }, 403);
+    }
+
+    if (user.uep !== undefined && userId && getUserEpoch(userId) > user.uep) {
+      return c.json({ error: "Unauthorized: Session has been revoked" }, 401);
+    }
+
+    const dpopConfig = config.get("dpop");
+    const isDPoPRequired = dpopConfig === "required" || dpopConfig?.mode === "required";
 
     if (user.cnf?.jkt) {
       const dpopHeader = c.req.header("dpop");
@@ -268,6 +349,9 @@ function requireAuth() {
         c.header("WWW-Authenticate", `DPoP error="${code}", error_description="${err.message}"`);
         return c.json({ error: code, message: err.message }, status);
       }
+    } else if (isDPoPRequired) {
+      c.header("WWW-Authenticate", 'DPoP error="invalid_dpop_proof", error_description="DPoP bound access token is required"');
+      return c.json({ error: "invalid_dpop_proof", message: "A DPoP-bound access token is required" }, 400);
     }
 
     if (user.sid && config.get("refreshTokens")) {
@@ -281,6 +365,23 @@ function requireAuth() {
         return c.json({ error: "Authentication service unavailable" }, 503);
       }
     }
+
+    if (user.act) {
+      if (isImpersonationRevoked(user.jti)) {
+        return c.json({ error: "Unauthorized: Impersonation session has ended" }, 401);
+      }
+      const reqPath = new URL(c.req.url).pathname.toLowerCase();
+      if (
+        HONO_IMPERSONATION_RESTRICTED_PATHS.some((prefix) => reqPath.includes(prefix)) ||
+        (reqPath.includes("/orgs") && c.req.method !== "GET")
+      ) {
+        return c.json({
+          error: "impersonation_restricted",
+          message: "Impersonated sessions cannot perform administrative or credential management actions"
+        }, 403);
+      }
+    }
+
     c.set("user", user);
     await next();
   };

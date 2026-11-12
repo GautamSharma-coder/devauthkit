@@ -163,7 +163,7 @@ class CloudflareD1ApiKeyStore {
       WHERE id = ?
     `).bind(id).run();
 
-    return res.success || true;
+    return res.meta?.changes !== undefined ? res.meta.changes > 0 : Boolean(res.success);
   }
 
   async touchLastUsed(id, timestamp = Date.now()) {

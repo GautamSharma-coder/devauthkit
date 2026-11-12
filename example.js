@@ -15,10 +15,11 @@ devAuthKit(app, {
   debug: true
 });
 
-// Serve client SDK, docs, and frontend demo directly for quick testing
+// Serve client SDK, docs, frontend demo, and one-page OTP example app
 app.use("/client", express.static(path.join(__dirname, "client")));
 app.use("/demo", express.static(path.join(__dirname, "client", "frontend")));
 app.use("/docs", express.static(path.join(__dirname, "docs")));
+app.use("/otp-example", express.static(path.join(__dirname, "examples", "email-otp-flow", "public")));
 
 // Example custom protected route using DevAuthKit's requireAuth middleware
 const { requireAuth } = devAuthKit;
@@ -34,5 +35,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n🚀 DevAuthKit example server running on http://localhost:${PORT}`);
   console.log(`📖 View Documentation & Showcase at: http://localhost:${PORT}/docs/index.html`);
-  console.log(`📱 Test the interactive demo at: http://localhost:${PORT}/demo/index.html\n`);
+  console.log(`📱 Test the interactive demo at: http://localhost:${PORT}/demo/index.html`);
+  console.log(`🛡️ Test One-Page Email OTP & Resend Rate Limiting at: http://localhost:${PORT}/otp-example/index.html\n`);
 });

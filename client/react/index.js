@@ -385,12 +385,25 @@ function useApiKeys() {
   };
 }
 
+const {
+  SignIn,
+  SignUp,
+  UserButton,
+  OrganizationSwitcher,
+  UserProfile
+} = require("./ui");
+
 module.exports = {
   AuthProvider,
   useAuth,
   useOrg,
   useSessions,
   useApiKeys,
-  AuthContext
+  AuthContext,
+  SignIn,
+  SignUp,
+  UserButton,
+  OrganizationSwitcher,
+  UserProfile
 };
 

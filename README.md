@@ -22,6 +22,7 @@
 🔄 **[Migration Guide (Clerk, Auth0, NextAuth, WorkOS & Version Upgrades) →](MIGRATION.md)**  
 🔐 **[Security Policy & Vulnerability Disclosure →](SECURITY.md)**  
 🌐 **[Live Demo & Interactive Sandbox →](https://gautamsharma-coder.github.io/devauthkit/)**  
+📱 **[One-Page Email OTP & Resend Rate Limiting Example →](examples/email-otp-flow/)**  
 ⚡ **[Run in 1-Click on StackBlitz →](https://stackblitz.com/github/GautamSharma-coder/devauthkit)**
 
 <p align="left">
@@ -54,7 +55,8 @@
 | **Enterprise SSO (SAML 2.0 & OIDC)** | 🛡️ **Zero-Fee / Native SP** | $$$ $125/conn/mo (WorkOS) / $800+/mo | ❌ Complex plugins | ❌ Strategy hell |
 | **SCIM 2.0 Directory Sync** | 👥 **Turnkey RFC 7643 & 7644** | $$$ Enterprise tier | ❌ None | ❌ None |
 | **Database Adapters** | **Prisma + Drizzle + Mongoose** | Vendor Cloud | Adapters required | Manual DB glue |
-| **Frontend Integration** | ✅ **Client SDK + React Hooks** | Proprietary Components | Next.js / React only | ❌ None |
+| **Frontend UI & Components** | 🎨 **Drop-in UI Components (<SignIn />, <UserButton />, <OrgSwitcher />)** | Proprietary Cloud Components | Next.js / React only | ❌ None |
+| **Local Visual Studio** | ⚡ **Built-in GUI (`npx devauthkit studio`)** | Cloud Dashboard | ❌ None | ❌ None |
 
 ---
 
@@ -94,6 +96,18 @@
 ```bash
 npm install devauthkit
 ```
+
+---
+
+### 📱 Try the One-Page Email OTP Example App
+
+Want to see the setup faster than reading the docs? Run our interactive one-page reference app featuring passwordless Email OTP authentication with resilient resend rate limiting:
+
+```bash
+npm run example:otp
+```
+
+Visit **`http://localhost:3000`** — features a 60-second client cooldown timer, server-enforced sliding window rate limiting (max 3 resends/min), devMode terminal OTP logging, and a protected dashboard! See [`examples/email-otp-flow/README.md`](examples/email-otp-flow/README.md).
 
 ---
 
@@ -335,34 +349,58 @@ devAuthKit(app, {
 });
 ```
 
-### React & Next.js Hooks (`devauthkit/react`)
+### Drop-In React UI Components & Hooks (`devauthkit/react`)
 
-Use the official `AuthProvider` and `useAuth()` hook for instant state management in React, Next.js (App & Pages router), and Vite:
+DevAuthKit includes ready-to-use, drop-in React components with light/dark theme support, mobile responsiveness, and zero external styling dependencies. Replace weeks of frontend auth development with a single line:
 
 ```jsx
-import { AuthProvider, useAuth } from "devauthkit/react";
+import { AuthProvider, SignIn, UserButton, OrganizationSwitcher } from "devauthkit/react";
 
 function App() {
   return (
     <AuthProvider>
-      <UserProfile />
+      <header style={{ display: "flex", justifyContent: "space-between", padding: 16, borderBottom: "1px solid #334155" }}>
+        <OrganizationSwitcher />
+        <UserButton showName />
+      </header>
+      <main style={{ display: "flex", justifyContent: "center", marginTop: 48 }}>
+        <SignIn redirectUrl="/dashboard" appearance={{ theme: "dark" }} />
+      </main>
     </AuthProvider>
   );
 }
+```
 
-function UserProfile() {
-  const { user, isAuthenticated, isLoading, sendOTP, verifyOTP, logout, loginWithGitHub, loginWithGoogle } = useAuth();
+#### Prebuilt Drop-In Components:
+- **`<SignIn />` & `<SignUp />`**: Full auth card supporting Email OTP (with auto-advancing 6-digit boxes & resend timers), Magic Links, Passkeys / Biometrics, Google, GitHub, and Enterprise SSO.
+- **`<UserButton />`**: Compact user avatar with dropdown menu showing user email, DPoP hardware protection badge, and one-click Sign Out.
+- **`<OrganizationSwitcher />`**: Multi-tenant workspace switcher with "+ Create Organization" modal and member invitation flows.
+- **`<UserProfile />`**: Full settings modal with tabbed views for Account Info, Active Multi-Device Sessions (with remote "Revoke Other Devices" button), and Machine API Keys (`dak_live_...`).
 
-  if (isLoading) return <div>Loading auth...</div>;
-  if (!isAuthenticated) return <button onClick={() => loginWithGitHub()}>Login with GitHub</button>;
+You can also use the headless hooks for custom UIs:
+- `useAuth()`: Access current user, tokens, and core auth helpers.
+- `useOrg()`: Manage B2B organizations, roles, and invitations.
+- `useSessions()`: Real-time multi-device session topology and remote device revocation.
+- `useApiKeys()`: Create, list, roll, and revoke machine API keys.
 
-  return (
-    <div>
-      <h2>Welcome, {user.email}</h2>
-      <button onClick={logout}>Sign Out</button>
-    </div>
-  );
-}
+---
+
+### 🛠️ DevAuthKit CLI (`npx devauthkit`)
+
+DevAuthKit ships with a zero-dependency CLI for scaffolding, configuration health checks, and a visual local Admin Dashboard:
+
+```bash
+# 🚀 1. Interactive Project Scaffolder (Next.js, Express, Hono)
+npx devauthkit init
+
+# ⚡ 2. Local Visual Admin Studio (runs on http://localhost:4321)
+npx devauthkit studio
+
+# 🩺 3. Pre-flight Security & Configuration Doctor
+npx devauthkit doctor
+
+# 🔑 4. Generate Cryptographically Secure Secrets & Keys
+npx devauthkit keys
 ```
 
 ### Refresh tokens and session revocation
@@ -1184,7 +1222,13 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 
 ## 🔖 Version Changelog
 
-- **v1.10.4 (Latest)**:
+- **v1.11.0 (Latest)**:
+  - **CLI & DevAuthKit Studio (`devauthkit`)**: Added the CLI (`bin/cli.js`) and localhost Studio inspector (`bin/studio.js`) with configuration diagnostics (`doctor`), cryptographic secret generation (`keys`), and interactive auth telemetry.
+  - **Drop-In React UI Components (`devauthkit/client/react`)**: Added `<SignIn />`, `<UserButton />`, `<OrganizationSwitcher />`, and `<UserProfile />` React UI components (`client/react/ui.js`) plus the `examples/email-otp-flow` starter example.
+  - **Comprehensive Security Hardening**: Hardened tenant/org/admin authorization across SSO, SCIM, Webhooks, Audit Logs, API Keys, Sessions, and Impersonation; added SSRF IP/hostname blocking on webhooks; hardened SAML XML validation (comment injection, CDATA, multiple signatures, `Reference URI`, `RelayState`); added per-email OTP concurrency locking, `Host` header validation, cross-site logout CSRF protection, `uep` revocation epoch checking across Express and Hono, and concurrent Merkle chain serialization.
+  - **Expanded Automated Regression Suite**: Added `test_security_regressions.js` (47 security/bug regression checks), `test_cli.js`, `test_react_components.js`, and `test_example_otp.js`.
+
+- **v1.10.4**:
   - **Hono Route Parity & Route Aliases**: Added `/auth/login` and `/auth/verify` route aliases to the Hono adapter (`createAuthRouter`), ensuring full parity with Express routes and seamless compatibility with `DevAuthClient.sendOTP()` and `DevAuthClient.verifyOTP()`.
   - **Robust Client SDK Response Parsing**: Added defensive response handling (`_safeJson`) across `DevAuthClient` to gracefully handle non-JSON HTTP errors (such as 404 or 502 HTML/text responses) without throwing cryptic `SyntaxError` exceptions.
   - **Expanded Regression Tests**: Added tests in `test_cloudflare.js` and `test_auth.js` verifying Hono route aliases and non-JSON error handling.

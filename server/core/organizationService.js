@@ -66,12 +66,18 @@ const ROLE_RANK = {
  * @returns {string}
  */
 function slugify(text) {
-  return String(text || "")
+  let slug = String(text || "")
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/[\s_-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/[\s_-]+/g, "-");
+  while (slug.startsWith("-")) {
+    slug = slug.slice(1);
+  }
+  while (slug.endsWith("-")) {
+    slug = slug.slice(0, -1);
+  }
+  return slug;
 }
 
 /**

@@ -1,4 +1,5 @@
 const { randomString, randomUUID, sha256Hex, signJwt } = require("../utils/webCrypto");
+const { getUserEpoch } = require("../controllers/userManagementController");
 
 function createAuthService({ config, getRefreshTokenStore }) {
   function refreshOptions() {
@@ -49,6 +50,10 @@ function createAuthService({ config, getRefreshTokenStore }) {
 
   async function createAccessToken(userPayload, familyId, dpopJkt) {
     const claims = { ...userPayload };
+    const uid = claims.id ?? claims.sub ?? claims.email;
+    if (claims.uep === undefined && uid !== undefined) {
+      claims.uep = getUserEpoch(uid);
+    }
     if (dpopJkt) {
       claims.cnf = { jkt: dpopJkt };
     }

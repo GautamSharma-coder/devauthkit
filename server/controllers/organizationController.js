@@ -10,6 +10,7 @@ const {
 const { sendOrgInvitation } = require("../utils/mailer");
 const { signJwt } = require("../utils/webCrypto");
 const { emitWebhookEvent } = require("../core/webhookDispatcher");
+const { getUserEpoch } = require("./userManagementController");
 
 function getOrgStore() {
   const store = config.get("organizationStore") || config.get("orgStore");
@@ -185,6 +186,8 @@ async function switchOrg(req, res) {
     const tokenPayload = {
       ...basePayload,
       sub: userId,
+      uep: getUserEpoch(userId),
+      ...(req.user.sid ? { sid: req.user.sid } : {}),
       org_id: organization.id,
       org_slug: organization.slug,
       org_role: member.role,
@@ -201,11 +204,13 @@ async function switchOrg(req, res) {
     const tokenType = req.user.cnf ? "DPoP" : "Bearer";
 
     if (config.get("setHttpOnlyCookie")) {
+      const isProd = process.env.NODE_ENV === "production";
       const cookieOptions = {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/"
+        secure: isProd,
+        sameSite: isProd ? "strict" : "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000
       };
       res.cookie(config.get("cookieName") || "devauth_token", token, cookieOptions);
     }
@@ -363,6 +368,14 @@ async function joinOrg(req, res) {
       return res.status(400).json({ error: "Invalid or expired invitation token" });
     }
 
+    if (
+      invitation.email &&
+      req.user?.email &&
+      invitation.email.toLowerCase() !== String(req.user.email).trim().toLowerCase()
+    ) {
+      return res.status(403).json({ error: "This invitation was issued for a different email address" });
+    }
+
     const userId = getUserId(req.user);
     const existing = await store.getMember(invitation.orgId, userId);
     if (existing) {
@@ -384,6 +397,8 @@ async function joinOrg(req, res) {
     const tokenPayload = {
       ...basePayload,
       sub: userId,
+      uep: getUserEpoch(userId),
+      ...(req.user.sid ? { sid: req.user.sid } : {}),
       org_id: organization.id,
       org_slug: organization.slug,
       org_role: member.role,

@@ -118,24 +118,30 @@
 
 | # | Feature | Description |
 |:--|:--------|:------------|
-| 40 | **Universal Client SDK** | `DevAuthClient` for React, Vue, Next.js, Vite, and plain HTML. Auto-manages tokens, DPoP proofs, and org context headers. |
-| 41 | **React Hooks** | `<AuthProvider>`, `useAuth()`, and `useOrg()` — reactive state, one-line social login, workspace switching, and DPoP status. |
-| 42 | **Reactive State Management** | `onAuthStateChanged()` listener for instant UI re-renders on login/logout across any framework. |
-| 43 | **Auto-Refresh on 401** | Client SDK transparently refreshes expired access tokens and retries the failed request — zero user friction. |
-| 44 | **Browser Script Tag** | Works with `<script src="...">` — no bundler required for simple frontends. |
+| 40 | **Drop-In Prebuilt UI Components** | Production-ready `<SignIn />`, `<SignUp />`, `<UserButton />`, `<OrganizationSwitcher />`, and `<UserProfile />` with dark/light themes and zero external CSS dependencies. |
+| 41 | **Universal Client SDK** | `DevAuthClient` for React, Vue, Next.js, Vite, and plain HTML. Auto-manages tokens, DPoP proofs, and org context headers. |
+| 42 | **React Hooks** | `<AuthProvider>`, `useAuth()`, `useOrg()`, `useSessions()`, and `useApiKeys()` — reactive state, workspace switching, remote session control, and DPoP status. |
+| 43 | **Reactive State Management** | `onAuthStateChanged()` listener for instant UI re-renders on login/logout across any framework. |
+| 44 | **Auto-Refresh on 401** | Client SDK transparently refreshes expired access tokens and retries the failed request — zero user friction. |
+| 45 | **Browser Script Tag** | Works with `<script src="...">` — no bundler required for simple frontends. |
 
 ---
 
-### 📘 Developer Experience
+### 📘 Developer Experience & Tooling
 
 | # | Feature | Description |
 |:--|:--------|:------------|
-| 45 | **100% TypeScript Native** | Complete `.d.ts` declarations for every module, adapter, store, middleware, and service. Full IntelliSense. |
-| 46 | **Zero-Setup Dev Mode** | No email config? OTPs and magic links print beautifully to your terminal. Start building in seconds. |
-| 47 | **Modern Email Support** | First-class Resend API integration + standard SMTP (Gmail, SendGrid, Postmark) via Nodemailer. Custom `mailer` function hook. |
-| 48 | **Role-Based Access Control** | `requireRole(["admin", "moderator"])` middleware — works standalone or stacked with `requireAuth`. |
-| 49 | **Complete Auth Lifecycle** | Built-in `/auth/me` profile introspection, `/auth/logout` session destruction, `/auth/refresh` token rotation. |
-| 50 | **300+ Automated Tests** | 10 comprehensive test suites covering every feature — 100% green pass rate on every publish. |
+| 46 | **Interactive Project Scaffolder** | `npx devauthkit init` — 30-second automated wizard for Next.js App Router, Express, and Hono. |
+| 47 | **Local Visual Admin Studio** | `npx devauthkit studio` — zero-dependency local dashboard on port 4321 for visual user, session, org, and Merkle audit log inspection. |
+| 48 | **Configuration Doctor** | `npx devauthkit doctor` & `checkConfig()` pre-flight diagnostics: verifies Node WebCrypto, database configurations, and secret strengths before deployment. |
+| 49 | **Cryptographic Secret Generator** | `npx devauthkit keys` — generates cryptographically strong secrets for `DEVAUTHKIT_SECRET`, webhook signatures, and machine keys. |
+| 50 | **100% TypeScript Native** | Complete `.d.ts` declarations for every module, adapter, store, middleware, UI component, and service. Full IntelliSense. |
+| 51 | **Zero-Setup Dev Mode** | No email config? OTPs and magic links print beautifully to your terminal. Start building in seconds. |
+| 52 | **Modern Email Support** | First-class Resend API integration + standard SMTP (Gmail, SendGrid, Postmark) via Nodemailer. Custom `mailer` function hook. |
+| 53 | **Role-Based Access Control** | `requireRole(["admin", "moderator"])` middleware — works standalone or stacked with `requireAuth`. |
+| 54 | **Complete Auth Lifecycle** | Built-in `/auth/me` profile introspection, `/auth/logout` session destruction, `/auth/refresh` token rotation. |
+| 55 | **One-Page Email OTP Reference App** | `npm run example:otp` — Complete one-page application demonstrating passwordless Email OTP flow with reactive 60s client cooldown and server-side resend rate limiting (HTTP 429 + Retry-After sync). |
+| 56 | **350+ Automated Tests** | 12 comprehensive test suites covering every backend, cryptographic, CLI, and frontend UI feature. |
 
 ---
 
@@ -199,7 +205,7 @@ Measured on AMD EPYC 7763 (4 vCPU), Node.js v20, 1,000 req/s sustained concurren
 
 | Metric | Value |
 |:---|:---|
-| **Total Features** | 55+ |
+| **Total Features** | 56+ |
 | **API Endpoints** | 50+ built-in routes |
 | **Storage Adapters** | 20+ (Memory, Redis, D1, KV, Prisma, Drizzle, Mongoose) |
 | **Test Assertions** | 300+ (100% pass rate) |

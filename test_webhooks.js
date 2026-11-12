@@ -553,6 +553,9 @@ async function runWebhookTests() {
     const unauthRes = await fetch(`${baseUrl}/auth/webhooks`);
     assert(unauthRes.status === 401, "GET /auth/webhooks rejects unauthenticated access with HTTP 401");
   } finally {
+    if (typeof server.closeAllConnections === "function") {
+      server.closeAllConnections();
+    }
     await new Promise((resolve) => server.close(resolve));
   }
 
@@ -603,7 +606,7 @@ async function runWebhookTests() {
   console.log(`🎉 Webhooks Test Results: ${passed} / ${total} tests passed!`);
   console.log("========================================================\n");
 
-  process.exit(passed === total ? 0 : 1);
+  process.exitCode = passed === total ? 0 : 1;
 }
 runWebhookTests().catch((err) => {
   console.error("Unhandled error in webhook tests:", err);

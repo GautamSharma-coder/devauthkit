@@ -1,25 +1,27 @@
-# 🔄 DevAuthKit — The Definitive Migration Guide
-## Zero-Downtime Upgrades, Schema Evolution & Zero-Fee Vendor Migration
+# 🔄 DevAuthKit — Migration Guide
+## Version Upgrades, Schema Evolution & Vendor Migration
 
 <p align="center">
   <img src="logo.png" alt="DevAuthKit Logo" width="280" />
 </p>
 
 <p align="center">
-  <strong>Transition effortlessly to self-hosted, sovereign, enterprise-grade authentication.</strong><br/>
-  Zero vendor lock-in. $0 monthly identity tax. Complete data custody.
+  <strong>Transition cleanly to self-hosted, enterprise-grade authentication.</strong><br/>
+  Zero vendor lock-in. Predictable infrastructure costs. Full data custody.
 </p>
 
 ---
 
+[![Secured by DevAuthKit](<https://img.shields.io/badge/Secured%20by-DevAuthKit-000000.svg?logo=lock&logoColor=white>)](<https://github.com/GautamSharma-coder/devauthkit>)
+
 ## 📑 Table of Contents
 
 1. [Executive Summary & Migration Principles](#1-executive-summary--migration-principles)
-2. [DevAuthKit Version Upgrade Matrix (v1.0 → v2.0)](#2-devauthkit-version-upgrade-matrix-v10--v20)
+2. [DevAuthKit Version Upgrade Matrix (v1.0 → v1.11.0)](#2-devauthkit-version-upgrade-matrix-v10--v1110)
    - [2.1 Upgrading from v1.0–v1.3 to v1.4+ (Refresh Tokens & Rotation)](#21-upgrading-from-v10v13-to-v14-refresh-tokens--rotation)
    - [2.2 Upgrading from v1.4 to v1.8+ (DPoP RFC 9449, Passkeys & TOTP MFA)](#22-upgrading-from-v14-to-v18-dpop-rfc-9449-passkeys--totp-mfa)
    - [2.3 Upgrading from v1.8 to v1.9+ (Organizations, Webhooks & Enterprise SSO/SCIM)](#23-upgrading-from-v18-to-v19-organizations-webhooks--enterprise-ssoscim)
-   - [2.4 Upgrading from v1.9 to v1.10+ / v2.0 (Audit Trails, API Keys, Sessions & Impersonation)](#24-upgrading-from-v19-to-v110--v20-audit-trails-api-keys-sessions--impersonation)
+   - [2.4 Upgrading from v1.9 to v1.10+ (Audit Trails, API Keys, Sessions & Impersonation)](#24-upgrading-from-v19-to-v110-audit-trails-api-keys-sessions--impersonation)
    - [2.5 Breaking Changes & Deprecations History](#25-breaking-changes--deprecations-history)
 3. [Database Schema Migrations & DDL Specifications](#3-database-schema-migrations--ddl-specifications)
    - [3.1 Prisma Schema & Migrations](#31-prisma-schema--migrations)
@@ -27,16 +29,16 @@
    - [3.3 Cloudflare D1 SQL Schema (`schema.d1.sql`)](#33-cloudflare-d1-sql-schema-schemad1sql)
    - [3.4 Raw PostgreSQL DDL Schema](#34-raw-postgresql-ddl-schema)
 4. [Migrating from External Authentication Providers](#4-migrating-from-external-authentication-providers)
-   - [4.1 Migrating from Clerk to DevAuthKit (Zero MAU Fees)](#41-migrating-from-clerk-to-devauthkit-zero-mau-fees)
-   - [4.2 Migrating from Auth0 / Okta to DevAuthKit (Escape the $800+/mo Enterprise Trap)](#42-migrating-from-auth0--okta-to-devauthkit-escape-the-800mo-enterprise-trap)
+   - [4.1 Migrating from Clerk to DevAuthKit (Fixed Infrastructure Costs)](#41-migrating-from-clerk-to-devauthkit-fixed-infrastructure-costs)
+   - [4.2 Migrating from Auth0 / Okta to DevAuthKit (Self-Hosted SSO & Audit Logs)](#42-migrating-from-auth0--okta-to-devauthkit-self-hosted-sso--audit-logs)
    - [4.3 Migrating from NextAuth.js / Auth.js to DevAuthKit (Deterministic Simplicity)](#43-migrating-from-nextauthjs--authjs-to-devauthkit-deterministic-simplicity)
-   - [4.4 Migrating from WorkOS to DevAuthKit (Save $125/connection/mo on SSO & SCIM)](#44-migrating-from-workos-to-devauthkit-save-125connectionmo-on-sso--scim)
+   - [4.4 Migrating from WorkOS to DevAuthKit (Self-Hosted SAML & SCIM)](#44-migrating-from-workos-to-devauthkit-self-hosted-saml--scim)
    - [4.5 Migrating from Passport.js / Custom Express Sessions to DevAuthKit](#45-migrating-from-passportjs--custom-express-sessions-to-devauthkit)
 5. [Frontend & Client SDK Migration](#5-frontend--client-sdk-migration)
    - [5.1 Initializing `DevAuthClient`](#51-initializing-devauthclient)
    - [5.2 Replacing Ad-Hoc Fetch & Token Management](#52-replacing-ad-hoc-fetch--token-management)
    - [5.3 Reactive State with `onAuthStateChanged`](#53-reactive-state-with-onauthstatechanged)
-   - [5.4 React Hooks & Context Integration](#54-react-hooks--context-integration)
+   - [5.4 Drop-In React Components & Hooks (`devauthkit/react`)](#54-drop-in-react-components--hooks-devauthkitreact)
 6. [Zero-Downtime Deployment & Cutover Strategy](#6-zero-downtime-deployment--cutover-strategy)
    - [6.1 Dual-Write & Shadow Verification](#61-dual-write--shadow-verification)
    - [6.2 Password Hash Migration (Lazy Re-Hashing vs. OTP Transition)](#62-password-hash-migration-lazy-re-hashing-vs-otp-transition)
@@ -47,19 +49,19 @@
 
 ## 🎯 1. Executive Summary & Migration Principles
 
-Modern engineering teams spend thousands of dollars every month on authentication SaaS platforms (Clerk, Auth0, WorkOS) that hold user identities hostage, enforce predatory pricing tiers, and inject network latency into the critical request path.
+Many engineering teams evaluate self-hosted authentication to avoid per-MAU pricing tiers, keep customer identities inside their own database, and eliminate external network hops on the critical request path.
 
-**DevAuthKit** delivers an enterprise-grade, zero-dependency, self-hosted authentication suite for Express, Hono, and Cloudflare Workers. 
+**DevAuthKit** delivers an enterprise-grade, self-hosted authentication suite for Express, Hono, and Cloudflare Workers.
 
 When planning your migration, DevAuthKit adheres to four core guarantees:
 1. **Zero Downtime:** Schema extensions are backward-compatible. New database columns supply safe default values (`revocation_epoch = 1`, `status = 'active'`).
 2. **Data Sovereignty:** All user credentials, sessions, audit records, and cryptographic keys reside entirely in your VPC, SQLite/D1 database, or PostgreSQL instance.
-3. **Isomorphic Runtime Portability:** Run identical business logic on Node.js (18+), Cloudflare Workers, Vercel Edge, AWS Lambda, Deno, or Bun without binary C++ addons.
+3. **Isomorphic Runtime Portability:** Run identical business logic on Node.js (18+), Cloudflare Workers, Vercel Edge, AWS Lambda, Deno, or Bun without native C++ addons.
 4. **Gradual Adoption:** You can run DevAuthKit in parallel with your existing auth provider, migrating traffic endpoint by endpoint or tenant by tenant.
 
 ---
 
-## 🚀 2. DevAuthKit Version Upgrade Matrix (v1.0 → v2.0)
+## 🚀 2. DevAuthKit Version Upgrade Matrix (v1.0 → v1.11.0)
 
 | Release Track | Key Architectural Capabilities Added | Breaking Changes | Migration Difficulty |
 | :--- | :--- | :--- | :---: |
@@ -67,7 +69,8 @@ When planning your migration, DevAuthKit adheres to four core guarantees:
 | **v1.4.x → v1.5.x** | Rotating refresh tokens, reuse detection family revocation, isomorphic Web Crypto API abstraction. | Insecure dev secrets rejected in production (`NODE_ENV=production`). | 🟡 Low |
 | **v1.6.x → v1.8.x** | RFC 9449 DPoP key binding, WebAuthn/Passkeys (FIDO2), TOTP 2FA + step-up `requireMfa`. | `dpopReplayStore` required when DPoP is enabled. | 🟡 Low |
 | **v1.9.0** | Multi-Tenant Organizations, Webhooks Engine (HMAC-SHA256), Enterprise SAML 2.0 SSO, SCIM 2.0 Directory Sync. | Added `/auth/orgs`, `/auth/webhooks`, `/auth/sso`, `/auth/scim` route namespaces. | 🟠 Moderate |
-| **v1.10.x → v2.0** | Merkle-chained Audit Trail (`audit_logs`), Scoped Machine API Keys (`api_keys`), Multi-Device Session Orchestrator (`sessions`), RFC 8693 User Impersonation, Monotonic Revocation Epochs. | User schema requires `status` and `revocation_epoch`. Hono route parity. | 🟠 Moderate |
+| **v1.10.x** | Merkle-chained Audit Trail (`audit_logs`), Scoped Machine API Keys (`api_keys`), Multi-Device Session Orchestrator (`sessions`), RFC 8693 User Impersonation, Monotonic Revocation Epochs, Hono parity. | User schema adds `status` and `revocation_epoch` for v2-spec features. | 🟠 Moderate |
+| **v1.11.0** | Interactive CLI (`devauthkit` / Studio UI), Drop-in React UI Components (`devauthkit/client/react`), Email OTP example flow, Security Hardening across SSO/SAML/SCIM/Webhooks/Auth/Hono & dedicated regression test suite. | Strict tenant/admin authorization, SSRF validation on webhooks, and strict `Host` header validation (`devMode` no longer auto-enabled in production). | 🟢 Low |
 
 ---
 
@@ -76,36 +79,41 @@ When planning your migration, DevAuthKit adheres to four core guarantees:
 In v1.4.0, DevAuthKit introduced **rotating refresh tokens** to protect against stolen access tokens while keeping session lifetimes extended securely.
 
 #### 1. Configuration Changes
-Pass a refresh token store to `devAuthKit(app, options)`:
+Pass `refreshTokens` and a `refreshTokenStore` to `devAuthKit(app, options)`:
 
 ```javascript
 // BEFORE (v1.0 - v1.3)
 const devAuthKit = require("devauthkit");
 devAuthKit(app, {
   jwtSecret: process.env.JWT_SECRET,
-  userAdapter: prismaAdapter(prisma.user)
+  userAdapter: devAuthKit.prismaAdapter(prisma)
 });
 
 // AFTER (v1.4+)
 const devAuthKit = require("devauthkit");
-const { RedisRefreshTokenStore } = require("devauthkit");
-// or: const MemoryRefreshTokenStore = require("devauthkit/stores/memoryRefreshTokenStore");
+const { RedisRefreshTokenStore, prismaAdapter } = devAuthKit;
+// Or for development/single-instance testing: devAuthKit.MemoryRefreshTokenStore
 
 devAuthKit(app, {
   jwtSecret: process.env.JWT_SECRET,
-  sessionSecret: process.env.SESSION_SECRET, // Required for secure cookie signing
-  userAdapter: prismaAdapter(prisma.user),
+  sessionSecret: process.env.SESSION_SECRET, // Required in production for secure cookie signing
+  userAdapter: prismaAdapter(prisma),
   refreshTokenStore: new RedisRefreshTokenStore(redisClient), // Or CloudflareD1RefreshTokenStore
-  refreshTokenCookieName: "dak_rt", // Default
-  refreshTokenTtlSeconds: 30 * 24 * 60 * 60 // 30 days
+  refreshTokens: {
+    accessTokenExpiresIn: "15m",
+    refreshTokenExpiresInDays: 30
+  }
 });
 ```
 
 #### 2. Client Refresh Handling
-Clients receive both an `accessToken` (short-lived, 15m) and a refresh token. The client can either let the httpOnly cookie handle rotation automatically or call:
+Clients receive both an `accessToken` (short-lived, `15m` by default) and an `httpOnly` refresh cookie. The client can call `refresh()` directly when needed:
 ```javascript
 const { DevAuthClient } = require("devauthkit/client");
-const client = new DevAuthClient({ baseUrl: "/auth" });
+const client = new DevAuthClient({
+  apiUrl: window.location.origin,
+  apiPrefix: "/auth"
+});
 await client.refresh();
 ```
 
@@ -113,31 +121,32 @@ await client.refresh();
 
 ### 2.2 Upgrading from v1.4 to v1.8+ (DPoP RFC 9449, Passkeys & TOTP MFA)
 
-v1.6–v1.8 introduced hardware-level token theft protection (DPoP) and biometric authentication.
+v1.6–v1.8 introduced hardware-level token theft protection (DPoP) and biometric/TOTP authentication.
 
 #### 1. DPoP Token Binding (RFC 9449)
 DPoP requires a replay store to prevent proof replay attacks:
 
 ```javascript
-const { RedisDpopReplayStore } = require("devauthkit");
+const devAuthKit = require("devauthkit");
+const { RedisDpopReplayStore } = devAuthKit;
 
 devAuthKit(app, {
   jwtSecret: process.env.JWT_SECRET,
   sessionSecret: process.env.SESSION_SECRET,
-  dpop: "optional", // "optional" | "enforced" | "disabled"
+  dpop: "optional", // "optional" | "required" | { mode: "optional" | "required" | "disabled" }
   dpopReplayStore: new RedisDpopReplayStore(redisClient) // Required when dpop is enabled
 });
 ```
 
 #### 2. TOTP MFA & Step-Up Auth
-Add `mfaStore` and configure issuer:
+Add `mfaStore` and configure `mfaIssuer`:
 
 ```javascript
 const { MemoryMfaStore } = require("devauthkit");
 
 devAuthKit(app, {
   // ...
-  mfaStore: new MemoryMfaStore(), // Or your custom Redis/DB MFA store
+  mfaStore: new MemoryMfaStore(), // Or a persistent MfaStore implementation
   mfaIssuer: "MyCompany",
   mfaStepUpExpiresInSeconds: 300 // 5 minutes step-up validity
 });
@@ -156,14 +165,17 @@ app.post("/api/billing/payout", requireAuth, requireMfa, (req, res) => {
 
 ### 2.3 Upgrading from v1.8 to v1.9+ (Organizations, Webhooks & Enterprise SSO/SCIM)
 
-v1.9.0 added complete turnkey B2B multi-tenancy, cryptographic webhooks, SAML 2.0 / OIDC enterprise single sign-on, and automated SCIM 2.0 provisioning.
+v1.9.0 added turnkey B2B multi-tenancy, cryptographic webhooks, SAML 2.0 / OIDC enterprise single sign-on, and automated SCIM 2.0 provisioning.
 
 #### 1. Organization & Multi-Tenancy Store
 ```javascript
-const { CloudflareD1OrganizationStore, MemoryOrganizationStore } = require("devauthkit");
+const { MemoryOrganizationStore } = require("devauthkit");
+// For Cloudflare D1:
+// const { CloudflareD1OrganizationStore } = require("devauthkit/stores/cloudflare-d1-organizations");
 
 devAuthKit(app, {
   // ...
+  organizations: true,
   organizationStore: new MemoryOrganizationStore() // Or new CloudflareD1OrganizationStore(env.DB)
 });
 ```
@@ -174,11 +186,8 @@ const { MemoryWebhookStore, CloudflareD1WebhookStore } = require("devauthkit");
 
 devAuthKit(app, {
   // ...
-  webhookStore: new MemoryWebhookStore(),
-  webhookDispatcherOptions: {
-    maxRetries: 5,
-    timeoutMs: 10000
-  }
+  webhooks: true,
+  webhookStore: new MemoryWebhookStore() // Or new CloudflareD1WebhookStore(env.DB)
 });
 ```
 
@@ -188,36 +197,36 @@ const { MemorySsoStore, CloudflareD1SsoStore } = require("devauthkit");
 
 devAuthKit(app, {
   // ...
-  ssoStore: new MemorySsoStore(),
+  ssoStore: new MemorySsoStore(), // Or new CloudflareD1SsoStore(env.DB)
+  scim: true,
   sso: {
-    spEntityId: "https://auth.mycompany.com/auth/sso/metadata",
-    spAcsUrl: "https://auth.mycompany.com/auth/sso/callback",
-    rollingCerts: [process.env.SAML_SP_CERT]
+    maxClockSkewSeconds: 300,
+    signingCert: process.env.SAML_SP_CERT
   }
 });
 ```
 
 ---
 
-### 2.4 Upgrading from v1.9 to v1.10+ / v2.0 (Audit Trails, API Keys, Sessions & Impersonation)
+### 2.4 Upgrading from v1.9 to v1.10+ (Audit Trails, API Keys, Sessions & Impersonation)
 
-v1.10 and v2.0 introduced the Next-Gen Architecture Specification:
-1. **Merkle-Chained Audit Trail:** Non-blocking asynchronous microtask ring-buffer with SHA-256 integrity proofs.
-2. **Scoped Machine API Keys:** Prefix-routed `dak_live_` / `dak_test_` keys with sub-0.01ms CRC32 fast-path checksum rejection.
-3. **Multi-Device Session Orchestrator:** Hardware, browser, OS, and IP topology tracking with global one-click remote session revocation.
-4. **RFC 8693 Impersonation:** Secure support agent "Act As User" dual-identity JWTs with zero delegation depth.
-5. **Monotonic Revocation Epochs:** Sub-5ms instant account suspension cascade without database queries on the hot path.
+v1.10.x introduced the Next-Gen Architecture capabilities:
+1. **Merkle-Chained Audit Trail:** Non-blocking asynchronous microtask queue with SHA-256 integrity proofs.
+2. **Scoped Machine API Keys:** Prefix-routed `dak_live_` / `dak_test_` keys with CRC32 fast-path checksum rejection.
+3. **Multi-Device Session Orchestrator:** Browser, OS, device, and IP tracking with remote session revocation.
+4. **RFC 8693 Impersonation:** Dual-identity support agent "Act As User" JWTs with zero delegation depth.
+5. **Monotonic Revocation Epochs:** Instant account suspension checks without database queries on the hot path.
 
-#### Complete v2.0 Server Configuration:
+#### Complete v1.10.x Server Configuration:
 ```javascript
 const express = require("express");
 const devAuthKit = require("devauthkit");
-const { 
-  MemoryAuditLogStore, 
-  MemoryApiKeyStore, 
-  SessionService, 
-  prismaAdapter 
-} = require("devauthkit");
+const {
+  MemoryAuditLogStore,
+  MemoryApiKeyStore,
+  SessionService,
+  prismaAdapter
+} = devAuthKit;
 
 const app = express();
 app.use(express.json());
@@ -225,31 +234,24 @@ app.use(express.json());
 devAuthKit(app, {
   jwtSecret: process.env.JWT_SECRET,
   sessionSecret: process.env.SESSION_SECRET,
-  userAdapter: prismaAdapter(prisma.user),
+  userAdapter: prismaAdapter(prisma),
 
-  // v2 Audit Logging
-  audit: {
-    enabled: true,
-    store: new MemoryAuditLogStore({ maxEntries: 100000 })
-  },
+  // Audit Logging
+  audit: true,
+  auditStore: new MemoryAuditLogStore({ maxEntries: 100000 }),
 
-  // v2 Scoped Machine API Keys
-  apiKeys: {
-    enabled: true,
-    store: new MemoryApiKeyStore()
-  },
+  // Scoped Machine API Keys
+  apiKeys: true,
+  apiKeyStore: new MemoryApiKeyStore(),
 
-  // v2 RFC 8693 User Impersonation
+  // RFC 8693 User Impersonation
   impersonation: {
     enabled: true,
     maxTtlSeconds: 3600 // 1 hour max session
   },
 
-  // v2 Multi-Device Sessions
-  sessions: {
-    enabled: true,
-    maxConcurrentSessions: 10
-  }
+  // Multi-Device Sessions
+  sessionService: new SessionService()
 });
 ```
 
@@ -260,10 +262,10 @@ devAuthKit(app, {
 | Release | Deprecated Feature / Parameter | New Replacement | Reason |
 | :--- | :--- | :--- | :--- |
 | **v1.4.0** | Insecure default secrets (`devAuthSecret`) | Strong 32-byte secret required in `production` | Prevents credential forging in production deployments. |
-| **v1.6.0** | Unrestricted Bearer tokens | DPoP Token Binding (`RFC 9449`) | Mitigates token exfiltration via malware and XSS. |
-| **v1.9.0** | Monolithic `req.user.orgId` manual lookup | `requireOrg` & `requireOrgRole` middleware | Enforces hierarchical role checks & workspace isolation. |
-| **v1.10.0**| Database polling for token revocation | Monotonic Revocation Epochs (`revocation_epoch`) | Eliminates database bottlenecks on the API hot path. |
-| **v2.0.0** | Ad-hoc API key headers (`x-api-key`) | Prefix-routed Bearer keys with CRC32 fast-path (`requireApiKey`) | Sub-millisecond validation and hierarchical wildcard scopes. |
+| **v1.6.0** | Unrestricted Bearer tokens | DPoP Token Binding (`RFC 9449`) | Mitigates token exfiltration via XSS or compromised clients. |
+| **v1.9.0** | Manual `req.user.orgId` checks | `requireOrg` & `requireOrgRole` middleware | Enforces hierarchical role checks & workspace isolation. |
+| **v1.10.0** | Database polling for token revocation | Monotonic Revocation Epochs (`revocation_epoch`) | Eliminates database bottlenecks on the API hot path. |
+| **v1.10.0** | Ad-hoc API key headers (`x-api-key`) | Prefix-routed Bearer keys with CRC32 fast-path (`requireApiKey`) | Fast validation and hierarchical wildcard scopes. |
 
 ---
 
@@ -662,19 +664,19 @@ DevAuthKit is designed as a drop-in, zero-fee replacement for proprietary identi
 
 ---
 
-### 4.1 Migrating from Clerk to DevAuthKit (Zero MAU Fees)
+### 4.1 Migrating from Clerk to DevAuthKit (Fixed Infrastructure Costs)
 
-Clerk charges aggressive per-MAU fees once you pass 10,000 users and locks your customer identities into their proprietary database. DevAuthKit gives you complete data sovereignty and identical UX.
+Teams often migrate from hosted auth providers to eliminate per-MAU billing tiers and keep customer identities inside their own database. DevAuthKit gives you full data custody and drop-in React UI components.
 
 #### 1. Exporting Users from Clerk
 In the Clerk Dashboard:
 1. Navigate to **Users** → **Export Users**.
-2. Download the `users.csv` or request a JSON export via Clerk's Backend API:
+2. Download `users.csv` or request a JSON export via Clerk's Backend API:
    ```bash
    curl -X GET "https://api.clerk.com/v1/users?limit=500" \
      -H "Authorization: Bearer sk_live_..."
    ```
-3. Load the users into your database using your Prisma or Drizzle adapter. Since Clerk uses bcrypt/scrypt or passwordless OTPs, transitioning users to DevAuthKit passwordless OTP or magic link requires **zero password resets**.
+3. Load the users into your database using your Prisma or Drizzle adapter. Because DevAuthKit supports passwordless Email OTP, Magic Links, and Passkeys out of the box, users can sign in with their verified email with **zero forced password resets**.
 
 #### 2. Backend Middleware Replacement
 
@@ -696,15 +698,15 @@ app.get("/api/protected", (req, res) => {
 // ✅ DEVAUTHKIT REPLACEMENT
 // ==========================================
 const devAuthKit = require("devauthkit");
-const { requireAuth } = require("devauthkit");
+const { requireAuth, prismaAdapter } = devAuthKit;
 
 devAuthKit(app, {
   jwtSecret: process.env.JWT_SECRET,
   sessionSecret: process.env.SESSION_SECRET,
-  userAdapter: prismaAdapter(prisma.user)
+  userAdapter: prismaAdapter(prisma)
 });
 
-// requireAuth validates JWT Bearer tokens, httpOnly cookies, or sessions automatically
+// requireAuth validates JWT Bearer tokens, DPoP proofs, and httpOnly cookies automatically
 app.get("/api/protected", requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
@@ -712,81 +714,56 @@ app.get("/api/protected", requireAuth, (req, res) => {
 
 #### 3. Frontend Component Replacement
 
+DevAuthKit ships drop-in React components (`AuthProvider`, `SignIn`, `UserButton`, `OrganizationSwitcher`, `useAuth`) via `devauthkit/react`:
+
 ```tsx
 // ==========================================
 // ❌ CLERK FRONTEND (Next.js / React)
 // ==========================================
-import { SignIn, UserButton, useUser, useAuth } from "@clerk/nextjs";
+import { ClerkProvider, SignIn, UserButton, useUser } from "@clerk/nextjs";
 
-export function Header() {
-  const { isSignedIn, user } = useUser();
-  const { signOut } = useAuth();
-
+export function App() {
   return (
-    <nav>
-      {isSignedIn ? (
-        <div>
-          <span>{user.primaryEmailAddress}</span>
-          <button onClick={() => signOut()}>Sign Out</button>
-        </div>
-      ) : (
-        <SignIn />
-      )}
-    </nav>
+    <ClerkProvider>
+      <Header />
+      <SignIn />
+    </ClerkProvider>
   );
 }
 
 // ==========================================
 // ✅ DEVAUTHKIT FRONTEND REPLACEMENT
 // ==========================================
-import { useState, useEffect } from "react";
-import { DevAuthClient } from "devauthkit/client";
+import { AuthProvider, SignIn, UserButton, useAuth } from "devauthkit/react";
 
-const auth = new DevAuthClient({ baseUrl: "/auth" });
-
-export function Header() {
-  const [user, setUser] = useState(auth.getUser());
-
-  useEffect(() => {
-    return auth.onAuthStateChanged((currentUser) => {
-      setUser(currentUser);
-    });
-  }, []);
-
-  const handleLogin = async (email: string) => {
-    await auth.sendOTP(email);
-    const otp = prompt("Enter the 6-digit code sent to your email:");
-    if (otp) {
-      await auth.verifyOTP(email, otp);
-    }
-  };
-
+function Header() {
+  const { isAuthenticated, user } = useAuth();
   return (
     <nav>
-      {user ? (
-        <div>
-          <span>{user.email}</span>
-          <button onClick={() => auth.logout()}>Sign Out</button>
-        </div>
-      ) : (
-        <button onClick={() => handleLogin(prompt("Enter email:") || "")}>
-          Sign In with Email OTP
-        </button>
-      )}
+      {isAuthenticated ? <UserButton showName /> : <span>{user?.email ?? "Guest"}</span>}
     </nav>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <Header />
+      <SignIn redirectUrl="/dashboard" showPasskey showSocial />
+    </AuthProvider>
   );
 }
 ```
 
 ---
 
-### 4.2 Migrating from Auth0 / Okta to DevAuthKit (Escape the $800+/mo Enterprise Trap)
+### 4.2 Migrating from Auth0 / Okta to DevAuthKit (Self-Hosted SSO & Audit Logs)
 
-Auth0 gates essential features like SAML SSO, Custom Domains, and Audit Streams behind expensive enterprise packages. DevAuthKit provides all of them built-in.
+Enterprise features such as SAML SSO, custom domains, and audit log exports are often gated behind higher-tier SaaS plans. DevAuthKit includes them in the self-hosted core.
 
 #### 1. Identity & Credentials Migration
-- **Social Identities (Google/GitHub):** Auth0 stores Google/GitHub user IDs (`google-oauth2|12345`). DevAuthKit maps these directly in your `userAdapter.linkOAuthIdentity(userId, { provider: "google", providerId: "12345" })`.
-- **SAML 2.0 Enterprise Connections:** Instead of configuring Auth0 Enterprise Connections at $800+/month, configure your Okta/Azure AD IdP to point directly to DevAuthKit's SAML Service Provider:
+- **Social Identities (Google/GitHub):** Auth0 stores external user IDs (such as `google-oauth2|12345`). DevAuthKit maps these via `userAdapter.linkOAuthIdentity({ userId, provider: "google", providerId: "12345", email })`.
+- **SAML 2.0 Enterprise Connections:** Configure your Okta or Azure AD IdP to point to DevAuthKit's SAML Service Provider endpoints:
   - **ACS URL:** `https://your-domain.com/auth/sso/callback`
   - **Entity ID:** `https://your-domain.com/auth/sso/metadata`
 
@@ -817,18 +794,16 @@ app.get("/api/dashboard", requiresAuth(), (req, res) => {
 // ✅ DEVAUTHKIT IMPLEMENTATION
 // ==========================================
 const devAuthKit = require("devauthkit");
-const { requireAuth } = require("devauthkit");
+const { requireAuth, prismaAdapter } = devAuthKit;
 
 devAuthKit(app, {
   jwtSecret: process.env.JWT_SECRET,
   sessionSecret: process.env.SESSION_SECRET,
-  userAdapter: prismaAdapter(prisma.user),
-  oauthProviders: {
-    google: {
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackUrl: `${process.env.BASE_URL}/auth/oauth/google/callback`
-    }
+  userAdapter: prismaAdapter(prisma),
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: `${process.env.BASE_URL}/auth/google/callback`
   }
 });
 
@@ -841,7 +816,7 @@ app.get("/api/dashboard", requireAuth, (req, res) => {
 
 ### 4.3 Migrating from NextAuth.js / Auth.js to DevAuthKit (Deterministic Simplicity)
 
-NextAuth has undergone severe breaking changes between v4 and v5 (`@auth/core`), causing runtime instability on Node.js/Edge and complex adapter friction. DevAuthKit provides clean, deterministic Express & Hono routes.
+If you want explicit, framework-portable auth routes across Node.js Express and Edge runtimes (Hono / Cloudflare Workers), DevAuthKit provides a unified router and store abstraction.
 
 #### 1. Database Schema Comparison
 NextAuth requires 4 tables: `Account`, `Session`, `User`, `VerificationToken`.  
@@ -850,7 +825,7 @@ DevAuthKit unifies this:
 - `sessions` (Multi-device tracking)
 - Built-in Redis or Memory stores handle transient OTPs and magic links without cluttering your persistent database.
 
-#### 2. Backend Route Handler Replacement (Next.js App Router / Hono)
+#### 2. Backend Route Handler Replacement (Hono / Edge)
 
 ```typescript
 // ==========================================
@@ -875,18 +850,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 // ==========================================
 import { Hono } from "hono";
 import { createAuthRouter } from "devauthkit/hono";
+import { prismaAdapter } from "devauthkit/adapters/prisma";
 
 const app = new Hono();
 
 // Mounts complete auth suite: OTP, Magic Links, Passkeys, SSO, Orgs, Audit Logs
 app.route("/auth", createAuthRouter({
-  jwtSecret: process.env.JWT_SECRET,
-  userAdapter: prismaAdapter(prisma.user),
-  oauthProviders: {
-    github: {
-      clientId: process.env.GITHUB_ID,
-      clientSecret: process.env.GITHUB_SECRET
-    }
+  jwtSecret: process.env.JWT_SECRET!,
+  userAdapter: prismaAdapter(prisma),
+  github: {
+    clientId: process.env.GITHUB_ID!,
+    clientSecret: process.env.GITHUB_SECRET!,
+    callbackURL: `${process.env.BASE_URL}/auth/github/callback`
   }
 }));
 
@@ -895,11 +870,9 @@ export default app;
 
 ---
 
-### 4.4 Migrating from WorkOS to DevAuthKit (Save $125/connection/mo on SSO & SCIM)
+### 4.4 Migrating from WorkOS to DevAuthKit (Self-Hosted SAML & SCIM)
 
-WorkOS charges **$125 per enterprise connection per month** for SAML SSO and SCIM directory sync. For a SaaS with 50 enterprise customers, that is **$6,250/month ($75,000/year)** for simple XML and JSON relaying.
-
-DevAuthKit includes a **native SAML 2.0 Service Provider engine and RFC 7643/7644 SCIM 2.0 Directory Sync** with zero external dependencies and zero recurring fees.
+Hosted enterprise brokers typically charge per-connection monthly fees for SAML SSO and SCIM directory sync. DevAuthKit includes a **native SAML 2.0 Service Provider engine and RFC 7643/7644 SCIM 2.0 Directory Sync** in the same self-hosted package with zero per-connection fees.
 
 #### 1. SSO Resolution Flow Comparison
 
@@ -920,36 +893,36 @@ app.post("/auth/sso/login", async (req, res) => {
 });
 
 // ==========================================
-// ✅ DEVAUTHKIT ZERO-FEE REPLACEMENT
+// ✅ DEVAUTHKIT SELF-HOSTED REPLACEMENT
 // ==========================================
 // DevAuthKit handles domain discovery and IdP routing natively!
 // Frontend:
-const client = new DevAuthClient({ baseUrl: "/auth" });
+const client = new DevAuthClient({ apiUrl: window.location.origin, apiPrefix: "/auth" });
 const { redirectUrl } = await client.loginWithSso("alice@enterprise-customer.com");
 window.location.href = redirectUrl;
 
 // Backend automatically verifies SAML assertions, XML C14N, and RSA signatures,
-// provision users into the matching Organization, and issues tenant-scoped DPoP JWTs.
+// provisions users into the matching Organization, and issues tenant-scoped tokens.
 ```
 
 ---
 
 ### 4.5 Migrating from Passport.js / Custom Express Sessions to DevAuthKit
 
-Legacy apps frequently rely on fragmented Passport strategies (`passport-local`, `passport-google-oauth20`, `passport-jwt`) wrapped in fragile callback chains.
+Legacy Express apps often accumulate fragmented Passport strategies (`passport-local`, `passport-google-oauth20`, `passport-jwt`) with repetitive serialization and callback boilerplate.
 
 #### 1. Consolidating All Auth into DevAuthKit
 
 ```javascript
 // ==========================================
-// ❌ PASSPORT.JS BOILERPLATE (150+ lines of config)
+// ❌ PASSPORT.JS BOILERPLATE
 // ==========================================
 const passport = require("passport");
 const LocalStrategy = require("passport-local").Strategy;
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 
-passport.use(new LocalStrategy(/* ... complex hashing, DB lookup ... */));
-passport.use(new GoogleStrategy(/* ... callback hell ... */));
+passport.use(new LocalStrategy(/* ... hashing, DB lookup ... */));
+passport.use(new GoogleStrategy(/* ... profile mapping ... */));
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser((id, done) => done(null, { id }));
 
@@ -957,20 +930,19 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // ==========================================
-// ✅ DEVAUTHKIT CONSOLIDATION (10 lines)
+// ✅ DEVAUTHKIT CONSOLIDATION
 // ==========================================
 const devAuthKit = require("devauthkit");
-const { requireAuth } = require("devauthkit");
+const { requireAuth, prismaAdapter } = devAuthKit;
 
 devAuthKit(app, {
   jwtSecret: process.env.JWT_SECRET,
   sessionSecret: process.env.SESSION_SECRET,
-  userAdapter: prismaAdapter(prisma.user),
-  oauthProviders: {
-    google: {
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET
-    }
+  userAdapter: prismaAdapter(prisma),
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: `${process.env.BASE_URL}/auth/google/callback`
   }
 });
 
@@ -984,7 +956,7 @@ app.get("/api/profile", requireAuth, (req, res) => {
 
 ## 💻 5. Frontend & Client SDK Migration
 
-DevAuthKit includes a universal, dependency-free JavaScript/TypeScript client SDK (`devauthkit/client`) that runs in browsers, React, Next.js, React Native, and Node.js.
+DevAuthKit includes a universal, dependency-free JavaScript/TypeScript client SDK (`devauthkit/client`) plus prebuilt React components and hooks (`devauthkit/react`).
 
 ### 5.1 Initializing `DevAuthClient`
 
@@ -992,8 +964,9 @@ DevAuthKit includes a universal, dependency-free JavaScript/TypeScript client SD
 import { DevAuthClient } from "devauthkit/client";
 
 export const auth = new DevAuthClient({
-  baseUrl: "/auth", // Your backend mount point
-  dpop: true        // Automatically generate ECDSA P-256 keys & RFC 9449 proofs
+  apiUrl: "",          // Same-origin by default, or e.g. "https://api.myapp.com"
+  apiPrefix: "/auth",  // Backend auth route mount prefix
+  dpop: true           // Automatically generate ECDSA P-256 keys & RFC 9449 proofs
 });
 ```
 
@@ -1001,8 +974,8 @@ export const auth = new DevAuthClient({
 
 `auth.fetch` is an authenticated wrapper around standard `window.fetch`. It automatically attaches:
 1. `Authorization: DPoP <token>` (or `Bearer <token>`)
-2. `DPoP: <proof_jwt>` thumbprinted to the client's public key
-3. Tenant context headers (`DevAuth-Org-Id`)
+2. `DPoP: <proof_jwt>` thumbprinted to the client's public key (when `dpop: true`)
+3. Active organization context headers (`DevAuth-Org-Id`)
 
 ```javascript
 // BEFORE: Manual token injection & refresh retry loops
@@ -1033,60 +1006,37 @@ const unsubscribe = auth.onAuthStateChanged((user) => {
 // unsubscribe();
 ```
 
-### 5.4 React Hooks & Context Integration
+### 5.4 Drop-In React Components & Hooks (`devauthkit/react`)
 
-Create a simple `AuthProvider` for your React or Next.js tree:
+You don't need to build your own React context—import `AuthProvider`, `useAuth`, `useOrg`, `SignIn`, and `UserButton` directly from `devauthkit/react`:
 
 ```tsx
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { DevAuthClient } from "devauthkit/client";
+import React from "react";
+import { AuthProvider, SignIn, UserButton, useAuth } from "devauthkit/react";
 
-interface AuthContextType {
-  user: any;
-  loading: boolean;
-  login: (email: string) => Promise<void>;
-  logout: () => Promise<void>;
-}
+function DashboardNav() {
+  const { user, isAuthenticated, logout } = useAuth();
 
-const auth = new DevAuthClient({ baseUrl: "/auth" });
-const AuthContext = createContext<AuthContextType | null>(null);
-
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<any>(auth.getUser());
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setUser(auth.getUser());
-    setLoading(false);
-
-    return auth.onAuthStateChanged((updatedUser) => {
-      setUser(updatedUser);
-      setLoading(false);
-    });
-  }, []);
-
-  const login = async (email: string) => {
-    await auth.sendOTP(email);
-    const code = prompt("Enter 6-digit OTP:");
-    if (code) await auth.verifyOTP(email, code);
-  };
-
-  const logout = async () => {
-    await auth.logout();
-  };
+  if (!isAuthenticated) {
+    return <SignIn redirectUrl="/dashboard" showPasskey showSocial showSSO />;
+  }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+    <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span>Signed in as {user?.email}</span>
+      <UserButton showName afterSignOutUrl="/" />
+      <button onClick={() => logout()}>Sign Out</button>
+    </header>
   );
-};
+}
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error("useAuth must be used within an AuthProvider");
-  return context;
-};
+export default function App() {
+  return (
+    <AuthProvider>
+      <DashboardNav />
+    </AuthProvider>
+  );
+}
 ```
 
 ---
@@ -1165,15 +1115,16 @@ If migrating from a legacy password-based system:
 **Issue:** `TypeError: globalThis.SubtleCrypto is undefined` on Node.js 18.x.  
 **Resolution:** DevAuthKit includes native automatic polyfills for Node 18 (`globalThis.SubtleCrypto` and `globalThis.File`). If running in custom sandboxes, ensure you import `devauthkit` before other libraries.
 
-### 2. Cookies Not Persisting Across Subdomains
-**Issue:** Frontend on `app.example.com` does not receive session cookies set by backend on `api.example.com`.  
-**Resolution:** Set the `cookieDomain` option in your configuration:
+### 2. Cross-Origin Cookies & Subdomain Frontends
+**Issue:** A frontend on `app.example.com` does not receive or send session cookies from an API on `api.example.com`.  
+**Resolution:** Allow the exact frontend origin(s) in `corsOrigin`, ensure `useCookies: true` (the default) on `DevAuthClient`, and configure your Express reverse proxy (`app.set("trust proxy", 1)`) when running behind TLS termination:
 ```javascript
 devAuthKit(app, {
   jwtSecret: process.env.JWT_SECRET,
-  cookieDomain: ".example.com", // Shared across all subdomains
-  cookieSameSite: "lax",        // Or "none" with cookieSecure: true for cross-site
-  cookieSecure: true
+  sessionSecret: process.env.SESSION_SECRET,
+  corsOrigin: ["https://app.example.com", "https://admin.example.com"],
+  setHttpOnlyCookie: true,
+  cookieName: "devauth_token"
 });
 ```
 

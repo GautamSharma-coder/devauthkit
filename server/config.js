@@ -134,9 +134,10 @@ module.exports = {
     const hasCustomMailer = typeof options.mailer === "function";
 
     const isDevModeAuto = Boolean(
-      options.devMode ?? 
-      (environment.DEV_MODE === "true" ||
-       (!hasResend && !hasSmtp && !hasCustomMailer))
+      options.devMode ??
+      (environment.NODE_ENV !== "production" &&
+        (environment.DEV_MODE === "true" ||
+         (!hasResend && !hasSmtp && !hasCustomMailer)))
     );
 
     const auditStore = options.auditStore || (options.audit !== false ? new MemoryAuditLogStore() : undefined);

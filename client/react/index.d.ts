@@ -62,6 +62,78 @@ export interface UseOrgResult {
   removeMember: (orgId: string, userId: string) => Promise<{ success: boolean }>;
 }
 
+export interface ClientSession {
+  id: string;
+  ip?: string;
+  isCurrent?: boolean;
+  device?: {
+    browser?: string;
+    os?: string;
+    platform?: string;
+  };
+  createdAt?: string;
+  lastActiveAt?: string;
+}
+
+export interface UseSessionsResult {
+  sessions: ClientSession[];
+  isLoading: boolean;
+  loadSessions: () => Promise<void>;
+  revokeSession: (sessionId: string) => Promise<{ success: boolean }>;
+  revokeOtherSessions: () => Promise<{ success: boolean; revokedCount: number }>;
+}
+
+export interface ClientApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  expiresAt?: string | null;
+  createdAt?: string;
+}
+
+export interface UseApiKeysResult {
+  apiKeys: ClientApiKey[];
+  isLoading: boolean;
+  loadApiKeys: () => Promise<void>;
+  createApiKey: (options: { name: string; scopes?: string[]; expiresAt?: string }) => Promise<{ success: boolean; key: string; apiKey: ClientApiKey }>;
+  revokeApiKey: (keyId: string) => Promise<{ success: boolean }>;
+  rollApiKey: (keyId: string) => Promise<{ success: boolean; key: string; apiKey: ClientApiKey }>;
+}
+
+export interface ComponentAppearance {
+  theme?: "dark" | "light" | "auto";
+  className?: string;
+  variables?: Record<string, string>;
+}
+
+export interface SignInProps {
+  appearance?: ComponentAppearance;
+  redirectUrl?: string;
+  onSuccess?: (user: AuthUser) => void;
+  onError?: (error: Error) => void;
+  showSocial?: boolean;
+  showPasskey?: boolean;
+  showSSO?: boolean;
+  initialStep?: "email" | "otp" | "sso";
+}
+
+export interface SignUpProps extends SignInProps {}
+
+export interface UserButtonProps {
+  appearance?: ComponentAppearance;
+  showName?: boolean;
+  afterSignOutUrl?: string;
+}
+
+export interface OrganizationSwitcherProps {
+  appearance?: ComponentAppearance;
+}
+
+export interface UserProfileProps {
+  appearance?: ComponentAppearance;
+}
+
 export interface AuthProviderProps {
   client?: DevAuthClient;
   initialUser?: AuthUser | null;
@@ -73,6 +145,20 @@ export function AuthProvider(props: AuthProviderProps): React.ReactElement;
 export function useAuth(): AuthContextValue;
 
 export function useOrg(): UseOrgResult;
+
+export function useSessions(): UseSessionsResult;
+
+export function useApiKeys(): UseApiKeysResult;
+
+export function SignIn(props?: SignInProps): React.ReactElement | null;
+
+export function SignUp(props?: SignUpProps): React.ReactElement | null;
+
+export function UserButton(props?: UserButtonProps): React.ReactElement | null;
+
+export function OrganizationSwitcher(props?: OrganizationSwitcherProps): React.ReactElement | null;
+
+export function UserProfile(props?: UserProfileProps): React.ReactElement | null;
 
 export const AuthContext: React.Context<AuthContextValue | null>;
 

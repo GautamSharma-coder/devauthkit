@@ -42,6 +42,7 @@ class AuditLogService {
     this.lastHash = GENESIS_HASH;
     this._flushScheduled = false;
     this._queue = [];
+    this._writeQueue = Promise.resolve();
   }
 
   setStore(store) {
@@ -62,7 +63,14 @@ class AuditLogService {
    * @param {Object} [event.metadata] - Structured event metadata
    * @returns {Promise<Object>} Created audit log entry
    */
-  async record(event) {
+  record(event) {
+    if (!this.enabled) return Promise.resolve(null);
+    const run = this._writeQueue.catch(() => {}).then(() => this._recordSequential(event));
+    this._writeQueue = run.catch(() => {});
+    return run;
+  }
+
+  async _recordSequential(event) {
     if (!this.enabled) return null;
 
     const id = `aud_${randomUUID()}`;

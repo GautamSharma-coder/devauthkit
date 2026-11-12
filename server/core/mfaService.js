@@ -34,7 +34,11 @@ function decodeBase32(value) {
   let bits = 0;
   let buffer = 0;
   const bytes = [];
-  for (const character of value.toUpperCase().replace(/=+$/g, "")) {
+  let cleanValue = value.toUpperCase();
+  while (cleanValue.endsWith("=")) {
+    cleanValue = cleanValue.slice(0, -1);
+  }
+  for (const character of cleanValue) {
     const index = BASE32_ALPHABET.indexOf(character);
     if (index === -1) throw new TypeError("Invalid base32 secret");
     buffer = (buffer << 5) | index;

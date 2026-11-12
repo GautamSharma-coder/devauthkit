@@ -13,14 +13,58 @@ const config = require("../config");
 const defaultRefreshTokenStore = require("../stores/defaultRefreshTokenStore");
 const { verifyDPoPProof, DPoPError } = require("../core/dpopService");
 const { emitWebhookEvent } = require("../core/webhookDispatcher");
+const { isUserBlocked } = require("./userManagementController");
+
+// Per-email verification lock to prevent concurrent OTP brute-force/replay races
+const verifyLocks = new Map();
+function withEmailVerifyLock(email, fn) {
+  const previous = verifyLocks.get(email) || Promise.resolve();
+  const current = previous.catch(() => {}).then(fn);
+  verifyLocks.set(email, current);
+  current.finally(() => {
+    if (verifyLocks.get(email) === current) {
+      verifyLocks.delete(email);
+    }
+  });
+  return current;
+}
+
+function getSafeRequestBaseUrl(req) {
+  const configured = config.get("magicLinkBaseURL");
+  if (configured) return configured;
+  const rawHost = typeof req.get === "function" ? req.get("host") : req.headers?.host;
+  const host = (typeof rawHost === "string" && rawHost.trim()) ? rawHost.trim() : "localhost";
+  if (!/^(\[[0-9a-fA-F:]+\]|[a-zA-Z0-9.-]+)(:\d{1,5})?$/.test(host)) {
+    throw new Error("Invalid Host header");
+  }
+  const protocol = req.protocol === "https" ? "https" : "http";
+  return `${protocol}://${host}${config.get("apiPrefix") || "/auth"}`;
+}
 
 // Magic link in-memory store
 const magicLinkStore = new Map();
 exports.magicLinkStore = magicLinkStore;
 exports.clearMagicLinks = () => magicLinkStore.clear();
 
-// Simple email regex for basic validation
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// ReDoS-safe email validation without polynomial backtracking
+function isValidEmail(email) {
+  if (!email || typeof email !== "string" || email.length > 254) return false;
+  const trimmed = email.trim();
+  const atIndex = trimmed.indexOf("@");
+  if (atIndex <= 0 || atIndex !== trimmed.lastIndexOf("@") || atIndex === trimmed.length - 1) {
+    return false;
+  }
+  const local = trimmed.slice(0, atIndex);
+  const domain = trimmed.slice(atIndex + 1);
+  if (!local || !domain || /\s/.test(local) || /\s/.test(domain)) {
+    return false;
+  }
+  const dotIndex = domain.indexOf(".");
+  if (dotIndex <= 0 || domain.endsWith(".")) {
+    return false;
+  }
+  return true;
+}
 const isProduction = () => typeof process !== "undefined" && process.env.NODE_ENV === "production";
 
 function getMagicLinkStore() {
@@ -61,6 +105,12 @@ function requirePasskeySameOrigin(req, res) {
 }
 
 async function completePasskeyLogin(req, res, userPayload) {
+  if (isUserBlocked(userPayload.id ?? userPayload.email)) {
+    return res.status(403).json({
+      error: "account_suspended",
+      message: "Account has been suspended by an administrator"
+    });
+  }
   if (req.session && typeof req.session.regenerate === "function") {
     await regenerateSession(req);
   }
@@ -145,10 +195,12 @@ function setAuthCookie(res, token) {
   const production = isProduction();
   const cookieName = config.get("cookieName") || "devauth_token";
   const refreshConfig = authService.refreshOptions();
-  const accessDuration = refreshConfig?.accessTokenExpiresIn.match(/^(\d+)(ms|s|m|h|d)$/);
+  const accessDuration = typeof refreshConfig?.accessTokenExpiresIn === "string"
+    ? refreshConfig.accessTokenExpiresIn.match(/^(\d+)(ms|s|m|h|d)$/)
+    : null;
   const accessMaxAge = accessDuration
     ? Number(accessDuration[1]) * ({ ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[accessDuration[2]])
-    : 15 * 60 * 1000;
+    : (typeof refreshConfig?.accessTokenExpiresIn === "number" ? refreshConfig.accessTokenExpiresIn * 1000 : 15 * 60 * 1000);
   res.cookie(cookieName, token, {
     httpOnly: true,
     secure: production,
@@ -182,9 +234,9 @@ function sendOAuthError(res, status, error, cause) {
  */
 exports.requestOTP = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email } = req.body || {};
 
-    if (!email || !EMAIL_REGEX.test(email.trim())) {
+    if (!email || !isValidEmail(email)) {
       return res.status(400).json({ error: "A valid email address is required" });
     }
 
@@ -195,8 +247,10 @@ exports.requestOTP = async (req, res) => {
     // Throttle: enforce minimum 30 seconds between OTP requests per email
     if (existing && Date.now() - existing.createdAt < 30 * 1000) {
       const waitSeconds = Math.ceil((30 * 1000 - (Date.now() - existing.createdAt)) / 1000);
+      res.set("Retry-After", String(waitSeconds));
       return res.status(429).json({ 
-        error: `Please wait ${waitSeconds}s before requesting a new code` 
+        error: `Please wait ${waitSeconds}s before requesting a new code`,
+        retryAfterSeconds: waitSeconds
       });
     }
 
@@ -206,7 +260,7 @@ exports.requestOTP = async (req, res) => {
     await otpStore.set(normalizedEmail, otpData);
 
     let magicLinkUrl = null;
-    const magicLinkEnabled = Boolean(config.get("magicLink") || req.body?.magicLink);
+    const magicLinkEnabled = Boolean(config.get("magicLink"));
     if (magicLinkEnabled) {
       const magicToken = randomString(32, "hex");
       const tokenHash = await sha256Hex(magicToken);
@@ -215,8 +269,12 @@ exports.requestOTP = async (req, res) => {
         email: normalizedEmail,
         expiresAt: Date.now() + expiryMinutes * 60 * 1000
       });
-      const baseUrl = config.get("magicLinkBaseURL") || `${req.protocol}://${req.get("host")}${config.get("apiPrefix") || "/auth"}`;
-      const verifyUrl = new URL(baseUrl.includes("/verify-magic") ? baseUrl : `${baseUrl.replace(/\/+$/, "")}/verify-magic`);
+      const rawBaseUrl = getSafeRequestBaseUrl(req);
+      let cleanBaseUrl = rawBaseUrl;
+      while (cleanBaseUrl.endsWith("/")) {
+        cleanBaseUrl = cleanBaseUrl.slice(0, -1);
+      }
+      const verifyUrl = new URL(cleanBaseUrl.includes("/verify-magic") ? cleanBaseUrl : `${cleanBaseUrl}/verify-magic`);
       verifyUrl.searchParams.set("token", magicToken);
       verifyUrl.searchParams.set("email", normalizedEmail);
       magicLinkUrl = verifyUrl.toString();
@@ -228,7 +286,7 @@ exports.requestOTP = async (req, res) => {
       message: "OTP sent successfully",
       expiresInMinutes: config.get("otpExpiryMinutes"),
       devMode: result.devMode || undefined,
-      ...(magicLinkUrl && (config.get("devMode") || result.devMode) ? { magicLinkUrl } : {})
+      ...(magicLinkUrl && !isProduction() && (config.get("devMode") || result.devMode) ? { magicLinkUrl } : {})
     });
   } catch (error) {
     console.error("[DevAuthKit] Error requesting OTP:", error);
@@ -244,61 +302,69 @@ exports.requestOTP = async (req, res) => {
  */
 exports.verifyOTP = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp } = req.body || {};
 
     if (!email || !otp) {
       return res.status(400).json({ error: "Email and OTP are required" });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const otpStore = getOtpStore();
-    const entry = await otpStore.get(normalizedEmail);
+    return await withEmailVerifyLock(normalizedEmail, async () => {
+      const otpStore = getOtpStore();
+      const entry = await otpStore.get(normalizedEmail);
 
-    if (!entry) {
-      return res.status(401).json({ 
-        error: "No pending OTP found for this email. Please request a new code." 
-      });
-    }
+      if (!entry) {
+        return res.status(401).json({ 
+          error: "No pending OTP found for this email. Please request a new code." 
+        });
+      }
 
-    const maxAttempts = config.get("maxAttempts");
-    if (entry.attempts >= maxAttempts) {
+      const maxAttempts = config.get("maxAttempts");
+      if (entry.attempts >= maxAttempts) {
+        await otpStore.delete(normalizedEmail);
+        return res.status(429).json({ 
+          error: "Too many failed attempts. This OTP has been invalidated for security. Please request a new code." 
+        });
+      }
+
+      const expiryMs = config.get("otpExpiryMinutes") * 60 * 1000;
+      if (Date.now() - entry.createdAt > expiryMs) {
+        await otpStore.delete(normalizedEmail);
+        return res.status(401).json({ error: "OTP has expired. Please request a new one." });
+      }
+
+      if (!constantTimeEqual(String(entry.otp), otp.toString().trim())) {
+        const attempts = await otpStore.recordAttempt(normalizedEmail);
+        const attemptsRemaining = Math.max(0, maxAttempts - attempts);
+        return res.status(401).json({ 
+          error: "Invalid OTP",
+          attemptsRemaining
+        });
+      }
+
+      // OTP is valid - clear from store immediately to prevent replay attacks
       await otpStore.delete(normalizedEmail);
-      return res.status(429).json({ 
-        error: "Too many failed attempts. This OTP has been invalidated for security. Please request a new code." 
+
+      const userPayload = await authService.resolveUserPayload(normalizedEmail);
+      if (isUserBlocked(userPayload.id ?? userPayload.email)) {
+        return res.status(403).json({
+          error: "account_suspended",
+          message: "Account has been suspended by an administrator"
+        });
+      }
+
+      const dpopJkt = await resolveDPoPJkt(req);
+      const tokens = await issueTokens(userPayload, res, dpopJkt);
+      if (req.session) {
+        req.session.user = tokens.sessionId
+          ? { ...userPayload, sid: tokens.sessionId }
+          : userPayload;
+      }
+
+      return res.json({
+        message: "Logged in successfully",
+        ...tokens
       });
-    }
-
-    const expiryMs = config.get("otpExpiryMinutes") * 60 * 1000;
-    if (Date.now() - entry.createdAt > expiryMs) {
-      await otpStore.delete(normalizedEmail);
-      return res.status(401).json({ error: "OTP has expired. Please request a new one." });
-    }
-
-    if (entry.otp !== otp.toString().trim()) {
-      const attempts = await otpStore.recordAttempt(normalizedEmail);
-      const attemptsRemaining = Math.max(0, maxAttempts - attempts);
-      return res.status(401).json({ 
-        error: "Invalid OTP",
-        attemptsRemaining
-      });
-    }
-
-    const userPayload = await authService.resolveUserPayload(normalizedEmail);
-
-    // OTP is valid - clear from store to prevent replay attacks
-    await otpStore.delete(normalizedEmail);
-
-    const dpopJkt = await resolveDPoPJkt(req);
-    const tokens = await issueTokens(userPayload, res, dpopJkt);
-    if (req.session) {
-      req.session.user = tokens.sessionId
-        ? { ...userPayload, sid: tokens.sessionId }
-        : userPayload;
-    }
-
-    return res.json({
-      message: "Logged in successfully",
-      ...tokens
     });
   } catch (error) {
     const dpopErrorResponse = handleDPoPError(res, error);
@@ -422,16 +488,19 @@ exports.verifyMagicLink = async (req, res) => {
 
     const tokenHash = await sha256Hex(String(token).trim());
     const store = getMagicLinkStore();
-    let entry;
-    if (typeof store.consume === "function") {
-      entry = await store.consume(tokenHash);
-    } else if (store instanceof Map) {
-      entry = store.get(tokenHash);
-      if (entry) store.delete(tokenHash);
-    } else {
-      entry = await store.get(tokenHash);
-      if (entry) await store.delete(tokenHash);
-    }
+    const entry = await withEmailVerifyLock(`magic:${tokenHash}`, async () => {
+      if (typeof store.consume === "function") {
+        return store.consume(tokenHash);
+      }
+      if (store instanceof Map) {
+        const found = store.get(tokenHash);
+        if (found) store.delete(tokenHash);
+        return found;
+      }
+      const found = await store.get(tokenHash);
+      if (found) await store.delete(tokenHash);
+      return found;
+    });
 
     if (!entry) {
       return res.status(401).json({ error: "Invalid or already used magic link" });
@@ -446,6 +515,12 @@ exports.verifyMagicLink = async (req, res) => {
     }
 
     const userPayload = await authService.resolveUserPayload(entry.email);
+    if (isUserBlocked(userPayload.id ?? userPayload.email)) {
+      return res.status(403).json({
+        error: "account_suspended",
+        message: "Account has been suspended by an administrator"
+      });
+    }
 
     if (req.session && typeof req.session.regenerate === "function") {
       await regenerateSession(req);
@@ -700,7 +775,7 @@ function createOAuthCallback(provider) {
         (typeof profile.id !== "string" && typeof profile.id !== "number") ||
         !String(profile.id) ||
         typeof profile.email !== "string" ||
-        !EMAIL_REGEX.test(profile.email.trim()) ||
+        !isValidEmail(profile.email) ||
         profile.emailVerified !== true
       ) {
         return res.status(401).json({
@@ -731,6 +806,12 @@ function createOAuthCallback(provider) {
       }
 
       const userPayload = await authService.resolveUserPayload(email, identity);
+      if (isUserBlocked(userPayload.id ?? userPayload.email)) {
+        return res.status(403).json({
+          error: "account_suspended",
+          message: "Account has been suspended by an administrator"
+        });
+      }
       if (req.session && typeof req.session.regenerate === "function") await regenerateSession(req);
       const tokens = await issueTokens(userPayload, res);
       if (req.session) {
@@ -830,6 +911,9 @@ exports.getMe = (req, res) => {
  * Logout user - destroy session and clear session & auth cookies
  */
 exports.logout = async (req, res) => {
+  if (req.method === "GET" && req.headers?.["sec-fetch-site"] === "cross-site") {
+    return res.status(403).json({ error: "Cross-site GET logout is forbidden" });
+  }
   const cookieName = config.get("cookieName") || "devauth_token";
   if (typeof res.clearCookie === "function") {
     res.clearCookie(cookieName);

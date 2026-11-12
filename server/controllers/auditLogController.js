@@ -1,6 +1,7 @@
 // server/controllers/auditLogController.js
 const config = require("../config");
 const { AuditLogService } = require("../core/auditLogService");
+const { isSystemAdmin, authorizeOrgAdmin } = require("../utils/accessControl");
 
 function getAuditService() {
   const auditService = config.get("auditService");
@@ -8,6 +9,23 @@ function getAuditService() {
     throw new Error("Audit log service is not configured");
   }
   return auditService;
+}
+
+async function resolveAuthorizedAuditOrgId(req, requestedOrgId) {
+  if (isSystemAdmin(req.user)) {
+    return { allowed: true, orgId: requestedOrgId || undefined };
+  }
+  const targetOrgId = req.user?.org_id || requestedOrgId;
+  if (!targetOrgId) {
+    return {
+      allowed: false,
+      status: 403,
+      error: "Forbidden: Administrator or organization admin privileges required"
+    };
+  }
+  const authz = await authorizeOrgAdmin(req, targetOrgId);
+  if (!authz.allowed) return authz;
+  return { allowed: true, orgId: String(targetOrgId) };
 }
 
 async function queryAuditLogs(req, res) {
@@ -24,13 +42,15 @@ async function queryAuditLogs(req, res) {
       offset
     } = req.query;
 
-    // Organization scoping: if user is not a superadmin, constrain orgId to their current workspace
-    const effectiveOrgId = req.user?.org_id || orgId;
+    const scope = await resolveAuthorizedAuditOrgId(req, orgId);
+    if (!scope.allowed) {
+      return res.status(scope.status).json({ error: scope.error });
+    }
 
     const result = await service.query({
       actorId,
       eventType,
-      orgId: effectiveOrgId,
+      orgId: scope.orgId,
       targetId,
       since: since ? Number(since) : undefined,
       until: until ? Number(until) : undefined,
@@ -53,9 +73,14 @@ async function getAuditLog(req, res) {
       return res.status(404).json({ error: "audit_entry_not_found" });
     }
 
-    // Tenant boundary check
-    if (req.user?.org_id && entry.orgId && entry.orgId !== req.user.org_id) {
-      return res.status(403).json({ error: "access_denied", message: "Audit log belongs to another workspace" });
+    if (!isSystemAdmin(req.user)) {
+      if (!entry.orgId) {
+        return res.status(403).json({ error: "access_denied", message: "Administrator privileges required" });
+      }
+      const authz = await authorizeOrgAdmin(req, entry.orgId);
+      if (!authz.allowed) {
+        return res.status(403).json({ error: "access_denied", message: "Audit log belongs to another workspace" });
+      }
     }
 
     return res.json({ entry });
@@ -69,13 +94,16 @@ async function exportAuditLogs(req, res) {
   try {
     const service = getAuditService();
     const { since, until, eventType, orgId } = req.query;
-    const effectiveOrgId = req.user?.org_id || orgId;
+    const scope = await resolveAuthorizedAuditOrgId(req, orgId);
+    if (!scope.allowed) {
+      return res.status(scope.status).json({ error: scope.error });
+    }
 
     const ndjson = await service.exportNdjson({
       since: since ? Number(since) : undefined,
       until: until ? Number(until) : undefined,
       eventType,
-      orgId: effectiveOrgId,
+      orgId: scope.orgId,
       limit: 5000
     });
 
@@ -90,6 +118,9 @@ async function exportAuditLogs(req, res) {
 
 async function verifyAuditTrail(req, res) {
   try {
+    if (!isSystemAdmin(req.user)) {
+      return res.status(403).json({ error: "forbidden", message: "Only administrators can verify the audit chain" });
+    }
     const service = getAuditService();
     const { entries } = await service.query({ limit: 1000 });
     // Verify in chronological order

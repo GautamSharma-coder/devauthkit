@@ -2,6 +2,7 @@
 const config = require("../config");
 const { emitAuditLog } = require("../core/auditLogService");
 const { emitWebhookEvent } = require("../core/webhookDispatcher");
+const { getActorId, isSystemAdmin } = require("../utils/accessControl");
 
 function getApiKeyService() {
   const service = config.get("apiKeyService");
@@ -20,10 +21,24 @@ async function createApiKey(req, res) {
       return res.status(400).json({ error: "missing_name", message: "API key name is required" });
     }
 
-    const effectiveOrgId = req.user?.org_id || orgId || null;
+    const userId = getActorId(req.user);
+    let effectiveOrgId = req.user?.org_id || null;
+    if (!effectiveOrgId && orgId) {
+      const orgStore = config.get("organizationStore") || config.get("orgStore");
+      if (!isSystemAdmin(req.user)) {
+        if (!orgStore) {
+          return res.status(403).json({ error: "forbidden", message: "Cannot scope API key to an unverified organization" });
+        }
+        const member = await orgStore.getMember(String(orgId), userId);
+        if (!member) {
+          return res.status(403).json({ error: "forbidden", message: "You are not a member of the target organization" });
+        }
+      }
+      effectiveOrgId = String(orgId);
+    }
 
     const { key, rawKey } = await service.createKey({
-      userId: req.user.id,
+      userId,
       orgId: effectiveOrgId,
       name,
       scopes,
@@ -98,7 +113,7 @@ async function updateApiKey(req, res) {
     const service = getApiKeyService();
     const { name, scopes } = req.body || {};
 
-    const updated = await service.updateKey(req.params.id, req.user.id, {
+    const updated = await service.updateKey(req.params.id, getActorId(req.user), {
       name,
       scopes
     });
@@ -110,6 +125,8 @@ async function updateApiKey(req, res) {
     const { keyDigest, ...safeKey } = updated;
     return res.json({ key: safeKey });
   } catch (err) {
+    if (err.message === "API key not found") return res.status(404).json({ error: "api_key_not_found" });
+    if (err.message?.startsWith("Unauthorized")) return res.status(403).json({ error: "access_denied" });
     console.error("[DevAuthKit] Update API key error:", err);
     return res.status(500).json({ error: "failed_to_update_api_key", message: err.message });
   }
@@ -118,7 +135,7 @@ async function updateApiKey(req, res) {
 async function revokeApiKey(req, res) {
   try {
     const service = getApiKeyService();
-    const success = await service.revokeKey(req.params.id, req.user.id);
+    const success = await service.revokeKey(req.params.id, getActorId(req.user));
     if (!success) {
       return res.status(404).json({ error: "api_key_not_found" });
     }
@@ -142,6 +159,8 @@ async function revokeApiKey(req, res) {
 
     return res.json({ success: true, message: "API key revoked" });
   } catch (err) {
+    if (err.message === "API key not found") return res.status(404).json({ error: "api_key_not_found" });
+    if (err.message?.startsWith("Unauthorized")) return res.status(403).json({ error: "access_denied" });
     console.error("[DevAuthKit] Revoke API key error:", err);
     return res.status(500).json({ error: "failed_to_revoke_api_key", message: err.message });
   }
@@ -150,7 +169,7 @@ async function revokeApiKey(req, res) {
 async function rollApiKey(req, res) {
   try {
     const service = getApiKeyService();
-    const { key, rawKey } = await service.rollKey(req.params.id, req.user.id);
+    const { key, rawKey } = await service.rollKey(req.params.id, getActorId(req.user));
 
     await emitAuditLog({
       eventType: "apikey.rolled",
@@ -171,6 +190,8 @@ async function rollApiKey(req, res) {
 
     return res.json({ key, rawKey });
   } catch (err) {
+    if (err.message === "API key not found") return res.status(404).json({ error: "api_key_not_found" });
+    if (err.message?.startsWith("Unauthorized")) return res.status(403).json({ error: "access_denied" });
     console.error("[DevAuthKit] Roll API key error:", err);
     return res.status(500).json({ error: "failed_to_roll_api_key", message: err.message });
   }

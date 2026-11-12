@@ -17,7 +17,8 @@ async function listSessions(req, res) {
   try {
     const service = getSessionService();
     const currentSessionId = req.user?.sid || null;
-    const sessions = service.listUserSessions(req.user.id, currentSessionId);
+    const userId = String(req.user.id ?? req.user.sub ?? req.user.email);
+    const sessions = service.listUserSessions(userId, currentSessionId);
 
     return res.json({ sessions });
   } catch (err) {
@@ -34,9 +35,14 @@ async function revokeSession(req, res) {
       return res.status(400).json({ error: "missing_session_id" });
     }
 
-    const success = service.revokeSession(sessionId, req.user.id);
+    const userId = String(req.user.id ?? req.user.sub ?? req.user.email);
+    const success = service.revokeSession(sessionId, userId);
+    const isOwnCurrentSid = Boolean(req.user?.sid && req.user.sid === sessionId);
+    if (!success && !isOwnCurrentSid) {
+      return res.status(404).json({ error: "session_not_found", message: "Session not found for this account" });
+    }
 
-    // Also revoke in refresh token store if applicable
+    // Revoke in refresh token store only after verifying session ownership
     const tokenStore = getRefreshTokenStore();
     if (tokenStore && typeof tokenStore.revokeFamily === "function") {
       try {
@@ -48,7 +54,7 @@ async function revokeSession(req, res) {
 
     await emitAuditLog({
       eventType: "session.revoked",
-      actorId: req.user.id,
+      actorId: userId,
       actorType: req.user.role || "user",
       targetId: sessionId,
       ipAddress: req.ip,
@@ -58,10 +64,10 @@ async function revokeSession(req, res) {
 
     emitWebhookEvent("session.revoked", {
       sessionId,
-      userId: req.user.id
+      userId
     });
 
-    return res.json({ success, message: "Session revoked" });
+    return res.json({ success: true, message: "Session revoked" });
   } catch (err) {
     console.error("[DevAuthKit] Revoke session error:", err);
     return res.status(500).json({ error: "failed_to_revoke_session", message: err.message });
@@ -72,8 +78,23 @@ async function revokeOtherSessions(req, res) {
   try {
     const service = getSessionService();
     const currentSessionId = req.user?.sid;
+    const userId = String(req.user.id ?? req.user.sub ?? req.user.email);
 
-    const revokedCount = service.revokeOtherSessions(req.user.id, currentSessionId);
+    const otherSessions = service
+      .listUserSessions(userId, currentSessionId)
+      .filter((s) => !s.isCurrent);
+    const revokedCount = service.revokeOtherSessions(userId, currentSessionId);
+
+    const tokenStore = getRefreshTokenStore();
+    if (tokenStore && typeof tokenStore.revokeFamily === "function") {
+      for (const s of otherSessions) {
+        try {
+          await tokenStore.revokeFamily(s.id);
+        } catch (err) {
+          console.error("[DevAuthKit] Failed to revoke other refresh token family:", err);
+        }
+      }
+    }
 
     await emitAuditLog({
       eventType: "session.revoked_all",

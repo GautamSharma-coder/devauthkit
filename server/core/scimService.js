@@ -200,24 +200,25 @@ function formatScimError(status, detail, scimType = null) {
  */
 function parseScimFilter(filter) {
   if (!filter || typeof filter !== "string") return null;
+  const trimmed = filter.trim();
 
   // Simple SCIM filter parser: <attribute> <op> "<value>"
-  const match = filter.match(/^\s*([a-zA-Z0-9_.]+)\s+(eq|co|sw|ew)\s+["']?([^"']+)["']?\s*$/i);
+  const match = trimmed.match(/^([a-zA-Z0-9_.]+)\s+(eq|co|sw|ew)\s+(?:"([^"\\]*)"|'([^'\\]*)'|([^\s"']+))$/i);
   if (match) {
     return {
       attribute: match[1],
       operator: match[2].toLowerCase(),
-      value: match[3]
+      value: match[3] ?? match[4] ?? match[5]
     };
   }
 
   // emails[value eq "..."] format
-  const complexMatch = filter.match(/emails\[value\s+(eq)\s+["']?([^"']+)["']?\]/i);
+  const complexMatch = trimmed.match(/^emails\[value\s+(eq)\s+(?:"([^"\\]*)"|'([^'\\]*)'|([^\s"'\]]+))\]$/i);
   if (complexMatch) {
     return {
       attribute: "userName",
       operator: complexMatch[1].toLowerCase(),
-      value: complexMatch[2]
+      value: complexMatch[2] ?? complexMatch[3] ?? complexMatch[4]
     };
   }
 
@@ -268,9 +269,10 @@ function parseScimPatchOperations(operations) {
       }
     } else if (opType === "remove") {
       // Group member removal: path="members[value eq \"usr_1\"]"
-      const memberMatch = path.match(/members\[value\s+eq\s+["']?([^"']+)["']?\]/i);
+      const trimmedPath = (path || "").trim();
+      const memberMatch = trimmedPath.match(/^members\[value\s+eq\s+(?:"([^"\\]*)"|'([^'\\]*)'|([^\s"'\]]+))\]$/i);
       if (memberMatch) {
-        result.removeMembers.push(memberMatch[1]);
+        result.removeMembers.push(memberMatch[1] ?? memberMatch[2] ?? memberMatch[3]);
       }
     }
   }

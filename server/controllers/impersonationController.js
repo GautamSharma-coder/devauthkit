@@ -1,19 +1,37 @@
 // server/controllers/impersonationController.js
-const { signJwt } = require("../utils/webCrypto");
+const { signJwt, randomUUID } = require("../utils/webCrypto");
 const config = require("../config");
 const { emitAuditLog } = require("../core/auditLogService");
 const { emitWebhookEvent } = require("../core/webhookDispatcher");
+const { isSystemAdmin } = require("../utils/accessControl");
+const { getUserEpoch } = require("./userManagementController");
+
+// Track explicitly ended impersonation JTIs until their natural expiry
+const revokedImpersonationJtis = new Map();
+
+function pruneRevokedImpersonations() {
+  const now = Math.floor(Date.now() / 1000);
+  for (const [jti, exp] of revokedImpersonationJtis.entries()) {
+    if (exp <= now) revokedImpersonationJtis.delete(jti);
+  }
+}
+
+function isImpersonationRevoked(jti) {
+  if (!jti) return false;
+  pruneRevokedImpersonations();
+  return revokedImpersonationJtis.has(jti);
+}
 
 async function startImpersonation(req, res) {
   try {
     // 1. Role validation: Must be an admin or superadmin
-    const userRole = req.user?.role;
-    if (userRole !== "admin" && userRole !== "superadmin") {
+    if (!isSystemAdmin(req.user)) {
       return res.status(403).json({
         error: "forbidden",
         message: "Only administrators can initiate impersonation sessions"
       });
     }
+    const userRole = req.user.role;
 
     // 2. Invariant: Prohibit chained impersonation (Zero Delegation Depth)
     if (req.user?.act) {
@@ -28,7 +46,7 @@ async function startImpersonation(req, res) {
       return res.status(400).json({ error: "missing_user_id", message: "Target userId is required" });
     }
 
-    if (userId === req.user.id) {
+    if (String(userId) === String(req.user.id)) {
       return res.status(400).json({ error: "invalid_target", message: "Cannot impersonate yourself" });
     }
 
@@ -46,11 +64,14 @@ async function startImpersonation(req, res) {
       targetUser = { id: userId, email: userId.includes("@") ? userId : `${userId}@example.com`, role: "user" };
     }
 
-    // Prohibit impersonating other superadmins
-    if (targetUser.role === "superadmin" && userRole !== "superadmin") {
+    // Prohibit impersonating superadmins (or peer admins unless caller is superadmin)
+    if (
+      (targetUser.role === "superadmin" || targetUser.role === "admin") &&
+      userRole !== "superadmin"
+    ) {
       return res.status(403).json({
         error: "privilege_violation",
-        message: "Cannot impersonate a superadmin user"
+        message: "Cannot impersonate an administrator or superadmin user"
       });
     }
 
@@ -58,13 +79,16 @@ async function startImpersonation(req, res) {
     const impersonationConfig = config.get("impersonation") || {};
     const ttlSeconds = impersonationConfig.maxTtlSeconds || 3600; // 1 hour default
     const now = Math.floor(Date.now() / 1000);
+    const jti = randomUUID();
 
     const tokenClaims = {
+      jti,
       sub: targetUser.id,
       id: targetUser.id,
       email: targetUser.email,
       role: targetUser.role || "user",
       org_id: targetUser.org_id || null,
+      uep: getUserEpoch(targetUser.id),
       scope: "impersonation:act_as",
       act: {
         sub: req.user.id,
@@ -119,6 +143,11 @@ async function startImpersonation(req, res) {
 async function endImpersonation(req, res) {
   try {
     if (req.user?.act) {
+      if (req.user.jti) {
+        pruneRevokedImpersonations();
+        const exp = typeof req.user.exp === "number" ? req.user.exp : Math.floor(Date.now() / 1000) + 3600;
+        revokedImpersonationJtis.set(req.user.jti, exp);
+      }
       await emitAuditLog({
         eventType: "impersonation.ended",
         actorId: req.user.act.id || req.user.act.sub,
@@ -147,5 +176,6 @@ async function endImpersonation(req, res) {
 
 module.exports = {
   startImpersonation,
-  endImpersonation
+  endImpersonation,
+  isImpersonationRevoked
 };
