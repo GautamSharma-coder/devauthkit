@@ -608,7 +608,9 @@ async function runSecurityRegressionTests() {
   process.exitCode = passed === total ? 0 : 1;
 }
 
-runSecurityRegressionTests().catch((err) => {
+runSecurityRegressionTests().then(() => {
+  process.exit(process.exitCode || 0);
+}).catch((err) => {
   console.error("Security regression suite failed:", err);
-  process.exitCode = 1;
+  process.exit(1);
 });

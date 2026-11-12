@@ -606,7 +606,7 @@ async function runWebhookTests() {
   console.log(`🎉 Webhooks Test Results: ${passed} / ${total} tests passed!`);
   console.log("========================================================\n");
 
-  process.exitCode = passed === total ? 0 : 1;
+  process.exit(passed === total ? 0 : 1);
 }
 runWebhookTests().catch((err) => {
   console.error("Unhandled error in webhook tests:", err);

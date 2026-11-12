@@ -1422,7 +1422,7 @@ async function runTests() {
       server.closeAllConnections();
     }
     await new Promise((resolve) => server.close(resolve));
-    process.exitCode = passed === total ? 0 : 1;
+    process.exit(passed === total ? 0 : 1);
   }
 }
 

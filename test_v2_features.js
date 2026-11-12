@@ -406,7 +406,7 @@ async function run() {
   console.log(`🎉 DevAuthKit v2 Test Results: ${passed} / ${passed + failed} tests passed!`);
   console.log(`========================================================\n`);
 
-  process.exitCode = failed > 0 ? 1 : 0;
+  process.exit(failed > 0 ? 1 : 0);
 }
 run().catch((err) => {
   console.error("Test execution failed:", err);

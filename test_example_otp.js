@@ -106,7 +106,9 @@ async function testOtpAndRateLimiting() {
   console.log("\n🎉 All One-Page Email OTP & Resend Rate Limiting tests passed successfully!\n");
 }
 
-testOtpAndRateLimiting().catch((err) => {
+testOtpAndRateLimiting().then(() => {
+  process.exit(0);
+}).catch((err) => {
   console.error("❌ Test failed:", err);
   process.exit(1);
 });

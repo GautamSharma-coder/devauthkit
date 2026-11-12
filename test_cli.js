@@ -41,7 +41,9 @@ async function testCli() {
   console.log("\n🎉 All DevAuthKit CLI tests passed successfully!\n");
 }
 
-testCli().catch((err) => {
+testCli().then(() => {
+  process.exit(0);
+}).catch((err) => {
   console.error("CLI test failed:", err);
   process.exit(1);
 });
