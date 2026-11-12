@@ -97,6 +97,9 @@ async function testOtpAndRateLimiting() {
     console.log("  ✅ [PASS] Protected route accessed with DevAuthClient.fetch()");
 
   } finally {
+    if (typeof server.closeAllConnections === "function") {
+      server.closeAllConnections();
+    }
     await new Promise((resolve) => server.close(resolve));
   }
 

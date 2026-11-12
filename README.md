@@ -1222,7 +1222,7 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 
 ## 🔖 Version Changelog
 
-- **v1.11.0 (Latest)**:
+- **v2.0.0 (Latest)**:
   - **CLI & DevAuthKit Studio (`devauthkit`)**: Added the CLI (`bin/cli.js`) and localhost Studio inspector (`bin/studio.js`) with configuration diagnostics (`doctor`), cryptographic secret generation (`keys`), and interactive auth telemetry.
   - **Drop-In React UI Components (`devauthkit/client/react`)**: Added `<SignIn />`, `<UserButton />`, `<OrganizationSwitcher />`, and `<UserProfile />` React UI components (`client/react/ui.js`) plus the `examples/email-otp-flow` starter example.
   - **Comprehensive Security Hardening**: Hardened tenant/org/admin authorization across SSO, SCIM, Webhooks, Audit Logs, API Keys, Sessions, and Impersonation; added SSRF IP/hostname blocking on webhooks; hardened SAML XML validation (comment injection, CDATA, multiple signatures, `Reference URI`, `RelayState`); added per-email OTP concurrency locking, `Host` header validation, cross-site logout CSRF protection, `uep` revocation epoch checking across Express and Hono, and concurrent Merkle chain serialization.

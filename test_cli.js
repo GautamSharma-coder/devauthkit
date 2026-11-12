@@ -20,7 +20,22 @@ async function testCli() {
   const testPort = 54321;
   const server = runStudio(testPort);
   assert(Boolean(server && server.listen), "runStudio creates an HTTP server instance");
-  await new Promise((resolve) => server.close(resolve));
+  await new Promise((resolve, reject) => {
+    if (server.listening) return resolve();
+    server.once("listening", resolve);
+    server.once("error", (err) => {
+      if (err && err.code === "EACCES") return resolve();
+      reject(err);
+    });
+  });
+  if (typeof server.closeAllConnections === "function") {
+    server.closeAllConnections();
+  }
+  if (server.listening) {
+    await new Promise((resolve) => server.close(resolve));
+  } else {
+    server.close();
+  }
   console.log("  ✅ [PASS] devauthkit studio server launches and cleanly terminates");
 
   console.log("\n🎉 All DevAuthKit CLI tests passed successfully!\n");

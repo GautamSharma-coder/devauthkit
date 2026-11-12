@@ -1,6 +1,6 @@
 {
   "name": "devauthkit",
-  "version": "1.11.0",
+  "version": "2.0.0",
   "description": "A plug-and-play authentication service for developers",
   "main": "index.js",
   "types": "./index.d.ts",
@@ -213,6 +213,7 @@
     "miniflare": "^4.20260730.0"
   },
   "overrides": {
+    "body-parser": "^2.4.0",
     "sharp": "^0.35.5",
     "undici": "^7.29.1",
     "ws": "^8.22.0"

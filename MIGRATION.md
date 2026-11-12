@@ -17,7 +17,7 @@
 ## 📑 Table of Contents
 
 1. [Executive Summary & Migration Principles](#1-executive-summary--migration-principles)
-2. [DevAuthKit Version Upgrade Matrix (v1.0 → v1.11.0)](#2-devauthkit-version-upgrade-matrix-v10--v1110)
+2. [DevAuthKit Version Upgrade Matrix (v1.0 → v2.0.0)](#2-devauthkit-version-upgrade-matrix-v10--v200)
    - [2.1 Upgrading from v1.0–v1.3 to v1.4+ (Refresh Tokens & Rotation)](#21-upgrading-from-v10v13-to-v14-refresh-tokens--rotation)
    - [2.2 Upgrading from v1.4 to v1.8+ (DPoP RFC 9449, Passkeys & TOTP MFA)](#22-upgrading-from-v14-to-v18-dpop-rfc-9449-passkeys--totp-mfa)
    - [2.3 Upgrading from v1.8 to v1.9+ (Organizations, Webhooks & Enterprise SSO/SCIM)](#23-upgrading-from-v18-to-v19-organizations-webhooks--enterprise-ssoscim)
@@ -61,7 +61,7 @@ When planning your migration, DevAuthKit adheres to four core guarantees:
 
 ---
 
-## 🚀 2. DevAuthKit Version Upgrade Matrix (v1.0 → v1.11.0)
+## 🚀 2. DevAuthKit Version Upgrade Matrix (v1.0 → v2.0.0)
 
 | Release Track | Key Architectural Capabilities Added | Breaking Changes | Migration Difficulty |
 | :--- | :--- | :--- | :---: |
@@ -70,7 +70,7 @@ When planning your migration, DevAuthKit adheres to four core guarantees:
 | **v1.6.x → v1.8.x** | RFC 9449 DPoP key binding, WebAuthn/Passkeys (FIDO2), TOTP 2FA + step-up `requireMfa`. | `dpopReplayStore` required when DPoP is enabled. | 🟡 Low |
 | **v1.9.0** | Multi-Tenant Organizations, Webhooks Engine (HMAC-SHA256), Enterprise SAML 2.0 SSO, SCIM 2.0 Directory Sync. | Added `/auth/orgs`, `/auth/webhooks`, `/auth/sso`, `/auth/scim` route namespaces. | 🟠 Moderate |
 | **v1.10.x** | Merkle-chained Audit Trail (`audit_logs`), Scoped Machine API Keys (`api_keys`), Multi-Device Session Orchestrator (`sessions`), RFC 8693 User Impersonation, Monotonic Revocation Epochs, Hono parity. | User schema adds `status` and `revocation_epoch` for v2-spec features. | 🟠 Moderate |
-| **v1.11.0** | Interactive CLI (`devauthkit` / Studio UI), Drop-in React UI Components (`devauthkit/client/react`), Email OTP example flow, Security Hardening across SSO/SAML/SCIM/Webhooks/Auth/Hono & dedicated regression test suite. | Strict tenant/admin authorization, SSRF validation on webhooks, and strict `Host` header validation (`devMode` no longer auto-enabled in production). | 🟢 Low |
+| **v2.0.0** | Interactive CLI (`devauthkit` / Studio UI), Drop-in React UI Components (`devauthkit/client/react`), Email OTP example flow, Security Hardening across SSO/SAML/SCIM/Webhooks/Auth/Hono & dedicated regression test suite. | Strict tenant/admin authorization, SSRF validation on webhooks, and strict `Host` header validation (`devMode` no longer auto-enabled in production). | 🟢 Low |
 
 ---
 

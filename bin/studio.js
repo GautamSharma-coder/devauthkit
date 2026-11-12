@@ -24,7 +24,7 @@ function computeCanonicalHash(prevHash, entry) {
 }
 
 function buildInitialTelemetry(cwd, port) {
-  let version = "1.11.0";
+  let version = "2.0.0";
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
     if (pkg && pkg.version) version = pkg.version;
@@ -1347,7 +1347,7 @@ function renderStudioHtml(initialData) {
       function renderSummary() {
         const isLive = Boolean(state.runtime?.liveConnected);
         document.getElementById("runtimeModeLabel").textContent =
-          (isLive ? "Live · " + state.runtime.apiUrl : "Local Preview") + " · v" + (state.runtime?.version || "1.11.0");
+          (isLive ? "Live · " + state.runtime.apiUrl : "Local Preview") + " · v" + (state.runtime?.version || "2.0.0");
         document.getElementById("liveApiUrlInput").value = state.runtime?.apiUrl || "";
         const errBanner = document.getElementById("liveErrorBanner");
         if (state.runtime?.liveError) {

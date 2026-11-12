@@ -555,6 +555,9 @@ async function runDPoPTests() {
     );
 
   } finally {
+    if (typeof server.closeAllConnections === "function") {
+      server.closeAllConnections();
+    }
     await new Promise((resolve) => server.close(resolve));
   }
 

@@ -12,7 +12,8 @@ We provide security updates and patches according to the following support matri
 
 | Release Line | Status | Security Patches |
 | :--- | :--- | :--- |
-| **`v1.10.x`** | **Active / Current** | ✅ **Full Support (Immediate Hotfixes)** |
+| **`v2.0.x`** | **Active / Current** | ✅ **Full Support (Immediate Hotfixes)** |
+| `v1.10.x` | Maintenance | ⚠️ Security Fixes Only |
 | `v1.9.x` | Maintenance | ⚠️ Critical Security Fixes Only |
 | `< v1.9.0` | End of Life (EOL) | ❌ Unsupported — Please upgrade immediately |
 

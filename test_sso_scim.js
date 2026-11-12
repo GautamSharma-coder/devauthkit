@@ -717,6 +717,9 @@ async function runSsoScimTests() {
   assert(isFamilyActive === false, "Instant Deprovisioning Cascade: revokes all active user sessions across clusters");
 
   // Close server cleanly
+  if (typeof server.closeAllConnections === "function") {
+    server.closeAllConnections();
+  }
   await new Promise((resolve) => server.close(resolve));
 
   // ==========================================
