@@ -2,9 +2,12 @@
 const { randomBytes } = require("./webCrypto");
 
 /**
- * Generate a cryptographically secure numeric OTP of specified length.
- * @param {number} length - Default is 6 digits
- * @returns {string} - The generated OTP as string
+ * Generate a cryptographically secure numeric OTP of the specified length.
+ * Uses rejection sampling over 32-bit random values to avoid modulo bias.
+ *
+ * @param {number} [length=6] - Number of digits in the generated OTP. Must be an integer between 1 and 9 (inclusive).
+ * @returns {string} A numeric OTP string of the requested length (digits `0`-`9`, with values in `[10^(length - 1), 10^length - 1]`).
+ * @throws {TypeError} Throws if `length` is not an integer between 1 and 9.
  */
 module.exports = function generateOTP(length = 6) {
   if (!Number.isInteger(length) || length < 1 || length > 9) {
