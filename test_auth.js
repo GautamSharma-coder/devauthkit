@@ -1413,6 +1413,39 @@ async function runTests() {
       "devauthkit/react exports AuthProvider component and useAuth hook"
     );
 
+    console.log("\n🔢 Testing generateOTP utility...");
+    const generateOTP = require("./server/utils/generateOTP.js");
+
+    const defaultOtp = generateOTP();
+    assert(
+      typeof defaultOtp === "string" && defaultOtp.length === 6 && /^\d{6}$/.test(defaultOtp),
+      "generateOTP() defaults to a 6-digit numeric string"
+    );
+
+    const customLengths = [1, 4, 6, 8, 9];
+    const customLengthsValid = customLengths.every((len) => {
+      const otp = generateOTP(len);
+      return typeof otp === "string" && otp.length === len && /^\d+$/.test(otp);
+    });
+    assert(
+      customLengthsValid,
+      "generateOTP(length) respects custom lengths (1, 4, 6, 8, 9) with strictly numeric characters"
+    );
+
+    const invalidLengths = [0, -1, 10, 4.5, "6", null, NaN];
+    const invalidLengthsRejected = invalidLengths.every((badLen) => {
+      try {
+        generateOTP(badLen);
+        return false;
+      } catch (err) {
+        return err instanceof TypeError;
+      }
+    });
+    assert(
+      invalidLengthsRejected,
+      "generateOTP(length) throws TypeError for invalid lengths"
+    );
+
     console.log(`\n🎉 Results: ${passed}/${total} tests passed!\n`);
   } catch (err) {
     console.error("Test runner encountered error:", err);
